@@ -14,12 +14,34 @@
     const CONFIG = {
         updateDebounceMs: 150,
         observerDebounceMs: 100,
-        brandName: null, // Will be extracted from page or stored
-        titleSeparator: ' | '
+        titleSeparator: ' | ',
+        // Location ID to brand name mapping
+        locationNames: {
+            'IgHEOk98NvraO0gtWVaL': 'FedImpact',
+            '8K55T8slMH0JRhCDHBEW': 'ProFeds'
+        },
+        defaultBrandName: 'GHL'
     };
 
-    // Store the original title as brand name
-    const originalTitle = document.title || 'GHL';
+    /**
+     * Extract location ID from URL path
+     * URL pattern: /v2/location/{locationId}/...
+     */
+    function getLocationId() {
+        const match = window.location.pathname.match(/\/v2\/location\/([^\/]+)/);
+        return match ? match[1] : null;
+    }
+
+    /**
+     * Get brand name based on location ID
+     */
+    function getBrandName() {
+        const locationId = getLocationId();
+        if (locationId && CONFIG.locationNames[locationId]) {
+            return CONFIG.locationNames[locationId];
+        }
+        return CONFIG.defaultBrandName;
+    }
 
     /**
      * Extract page context from various UI elements
@@ -31,6 +53,7 @@
             extractFromGHLContactDetail,
             extractFromGHLWorkflow,
             extractFromGHLFormBuilder,
+            extractFromGHLSurveyBuilder,
             // Generic fallbacks
             extractFromActiveNavItem,
             extractFromBreadcrumb,
@@ -58,11 +81,12 @@
             return null;
         }
 
-        // Selector for contact name in the top left
+        // Selector for contact name - the span with hr-ellipsis inside the p.hr-text-semibold
         const selectors = [
+            'p.hr-text-semibold span.hr-ellipsis',
+            'p.hr-text-semibold #hr-ellipsis-id',
             '#hr-ellipsis-id',
-            '.hr-ellipsis.hr-ellipsis--line-clamp',
-            'p.hr-text-semibold .hr-ellipsis'
+            '.hr-ellipsis.hr-ellipsis--line-clamp'
         ];
 
         for (const selector of selectors) {
@@ -70,7 +94,8 @@
                 const el = document.querySelector(selector);
                 if (el) {
                     const text = el.textContent?.trim();
-                    if (text && text.length > 1 && text.length < 100) {
+                    // Validate it looks like a name (not gibberish)
+                    if (text && text.length > 1 && text.length < 100 && /^[A-Za-z\s\-'\.]+$/.test(text)) {
                         return text;
                     }
                 }
@@ -92,11 +117,12 @@
             return null;
         }
 
-        // Selector for workflow name in the header
+        // More specific selector for the actual workflow name h1
         const selectors = [
-            '#cmp-header__txt--edit-workflow-name',
-            '.workflow-name-input h1',
-            '.editable-header-text'
+            'h1#cmp-header__txt--edit-workflow-name',
+            'h1.editable-header-text',
+            '.workflow-name-input h1.editable-header-text',
+            'p.workflow-name-input h1'
         ];
 
         for (const selector of selectors) {
@@ -104,7 +130,8 @@
                 const el = document.querySelector(selector);
                 if (el) {
                     const text = el.textContent?.trim();
-                    if (text && text.length > 1 && text.length < 100) {
+                    // Skip if it's just "Workflow" or too short
+                    if (text && text.length > 1 && text.length < 100 && text.toLowerCase() !== 'workflow') {
                         return text;
                     }
                 }
@@ -126,11 +153,10 @@
             return null;
         }
 
-        // Selector for form name in the builder
+        // More specific selector - the contenteditable div inside builder-form-name
         const selectors = [
-            '.builder-form-name [contenteditable="true"]',
-            '.builder-form-name div[contenteditable]',
-            '.builder-form-name'
+            'div.builder-form-name div[contenteditable="true"]',
+            'div.builder-form-name div.truncate[contenteditable]'
         ];
 
         for (const selector of selectors) {
@@ -138,7 +164,8 @@
                 const el = document.querySelector(selector);
                 if (el) {
                     const text = el.textContent?.trim();
-                    if (text && text.length > 1 && text.length < 100) {
+                    // Validate text is readable (not encoded/gibberish)
+                    if (text && text.length > 1 && text.length < 100 && isReadableText(text)) {
                         return text;
                     }
                 }
@@ -151,6 +178,50 @@
     }
 
     /**
+     * Extract survey name from GHL survey builder page
+     */
+    function extractFromGHLSurveyBuilder() {
+        // Check if we're on a survey builder page
+        if (!window.location.pathname.includes('/survey')) {
+            return null;
+        }
+
+        const selectors = [
+            'div.builder-form-name div[contenteditable="true"]',
+            '.survey-name-input',
+            '.survey-header input'
+        ];
+
+        for (const selector of selectors) {
+            try {
+                const el = document.querySelector(selector);
+                if (el) {
+                    const text = (el.value || el.textContent)?.trim();
+                    if (text && text.length > 1 && text.length < 100 && isReadableText(text)) {
+                        return text;
+                    }
+                }
+            } catch (e) {
+                // Continue
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Check if text is readable (not encoded/gibberish)
+     */
+    function isReadableText(text) {
+        if (!text) return false;
+        // Check for common readable patterns - should mostly be alphanumeric, spaces, and common punctuation
+        const readableChars = text.match(/[a-zA-Z0-9\s\.\,\!\?\-\'\"\:\;\/\(\)\[\]]/g);
+        if (!readableChars) return false;
+        // At least 70% should be readable characters
+        return (readableChars.length / text.length) >= 0.7;
+    }
+
+    /**
      * Look for active navigation menu items
      */
     function extractFromActiveNavItem() {
@@ -159,14 +230,12 @@
             // Sidebar active items
             '[class*="active"] [class*="menu-item-text"]',
             '[class*="active"] [class*="nav-text"]',
-            '[class*="active"] span:not([class*="icon"])',
             '.nav-link.active',
             '[aria-current="page"]',
             '[data-active="true"]',
             // GHL specific patterns
             '.hl-nav-item.active',
             '.sidebar-item.active',
-            '[class*="sidebar"] [class*="active"]',
             // Generic active menu patterns
             'nav .active',
             '.menu .active',
@@ -178,7 +247,7 @@
                 const elements = document.querySelectorAll(selector);
                 for (const el of elements) {
                     const text = getCleanText(el);
-                    if (text && text.length > 1 && text.length < 50) {
+                    if (text && text.length > 1 && text.length < 50 && isReadableText(text)) {
                         return text;
                     }
                 }
@@ -206,7 +275,7 @@
                 const el = document.querySelector(selector);
                 if (el) {
                     const text = getCleanText(el);
-                    if (text && text.length > 1 && text.length < 50) {
+                    if (text && text.length > 1 && text.length < 50 && isReadableText(text)) {
                         return text;
                     }
                 }
@@ -228,8 +297,7 @@
             '.page-title',
             '.page-header h1',
             '[class*="page-title"]',
-            '[class*="header-title"]',
-            'h1:first-of-type'
+            '[class*="header-title"]'
         ];
 
         for (const selector of selectors) {
@@ -237,7 +305,7 @@
                 const el = document.querySelector(selector);
                 if (el) {
                     const text = getCleanText(el);
-                    if (text && text.length > 1 && text.length < 60) {
+                    if (text && text.length > 1 && text.length < 60 && isReadableText(text)) {
                         return text;
                     }
                 }
@@ -259,19 +327,20 @@
         // Try hash first (common in SPAs)
         if (hash && hash.length > 1) {
             const hashPath = hash.replace(/^#\/?/, '').split('/')[0];
-            if (hashPath) {
+            if (hashPath && !/^[0-9a-f-]{20,}$/i.test(hashPath)) {
                 return formatPathSegment(hashPath);
             }
         }
 
-        // Use pathname
+        // Use pathname - find meaningful segment
         const segments = path.split('/').filter(s => s && s.length > 0);
         if (segments.length > 0) {
-            // Get the most meaningful segment (usually not just an ID)
+            // Get the most meaningful segment (skip IDs and "v2", "location")
+            const skipWords = ['v2', 'location', 'detail', 'edit', 'new'];
             for (let i = segments.length - 1; i >= 0; i--) {
                 const segment = segments[i];
-                // Skip segments that look like IDs
-                if (!/^[0-9a-f-]{20,}$/i.test(segment)) {
+                // Skip segments that look like IDs or common route words
+                if (!/^[0-9a-f-]{20,}$/i.test(segment) && !skipWords.includes(segment.toLowerCase())) {
                     return formatPathSegment(segment);
                 }
             }
@@ -314,18 +383,21 @@
         return text
             .replace(/\s+/g, ' ')
             .trim()
-            .substring(0, 50);
+            .substring(0, 60);
     }
 
     /**
-     * Update the document title
+     * Update the document title - modifies existing title element only
      */
     function updateTitle() {
         const context = extractPageContext();
+        const brandName = getBrandName();
 
         if (context) {
-            // Page name first, brand name last (e.g., "Crystal Johnson | ProFeds")
-            const newTitle = `${context}${CONFIG.titleSeparator}${originalTitle}`;
+            // Page name first, location/brand name last (e.g., "Crystal Johnson | FedImpact")
+            const newTitle = `${context}${CONFIG.titleSeparator}${brandName}`;
+
+            // Only update if different to avoid loops
             if (document.title !== newTitle) {
                 document.title = newTitle;
                 console.log('[GHL Tab Title] Updated:', newTitle);
@@ -355,7 +427,7 @@
             debouncedUpdate();
         }, CONFIG.observerDebounceMs));
 
-        // Observe the entire document for changes
+        // Observe the entire document for changes, but exclude title element
         observer.observe(document.body, {
             childList: true,
             subtree: true,
@@ -385,9 +457,13 @@
      */
     function init() {
         console.log('[GHL Tab Title] Initializing on', window.location.hostname);
+        console.log('[GHL Tab Title] Location ID:', getLocationId(), '-> Brand:', getBrandName());
 
         // Initial title update (with slight delay for SPA hydration)
         setTimeout(updateTitle, 500);
+
+        // Second update after more content loads
+        setTimeout(updateTitle, 1500);
 
         // Set up observers
         if (document.body) {
