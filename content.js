@@ -19,15 +19,68 @@
             'IgHEOk98NvraO0gtWVaL': 'FedImpact',
             '8K55T8slMH0JRhCDHBEW': 'ProFeds'
         },
-        defaultBrandName: 'GHL'
+        defaultBrandName: 'GHL',
+        // Skip these hosts - they're system iframes, not content
+        skipHosts: [
+            'firebaseapp.com',
+            'googleapis.com',
+            'gstatic.com',
+            'google.com'
+        ]
     };
 
     /**
-     * Extract location ID from URL path
+     * Check if current host should be skipped
+     */
+    function shouldSkipHost() {
+        const host = window.location.hostname.toLowerCase();
+        return CONFIG.skipHosts.some(skip => host.includes(skip));
+    }
+
+    /**
+     * Check if we're running in an iframe
+     */
+    function isInIframe() {
+        try {
+            return window.self !== window.top;
+        } catch (e) {
+            return true;
+        }
+    }
+
+    /**
+     * Check if we're in a leadconnectorhq.com iframe (the actual content iframes)
+     */
+    function isContentIframe() {
+        const host = window.location.hostname.toLowerCase();
+        return host.includes('leadconnectorhq.com');
+    }
+
+    /**
+     * Extract location ID from URL path (works in both main page and iframes)
      */
     function getLocationId() {
-        const match = window.location.pathname.match(/\/(?:v2\/)?location\/([^\/]+)/);
-        return match ? match[1] : null;
+        // Try current window's URL first
+        let match = window.location.pathname.match(/\/(?:v2\/)?location\/([^\/]+)/);
+        if (match) return match[1];
+
+        // Try getting from referrer
+        try {
+            if (document.referrer) {
+                match = document.referrer.match(/\/(?:v2\/)?location\/([^\/]+)/);
+                if (match) return match[1];
+            }
+        } catch (e) { }
+
+        // Try getting from parent URL (if accessible)
+        try {
+            if (window.parent !== window) {
+                match = window.parent.location.pathname.match(/\/(?:v2\/)?location\/([^\/]+)/);
+                if (match) return match[1];
+            }
+        } catch (e) { }
+
+        return null;
     }
 
     /**
@@ -41,33 +94,10 @@
         return CONFIG.defaultBrandName;
     }
 
-    /**
-     * Search for element in document and all iframes
-     */
-    function querySelectorAllFrames(selector) {
-        // Try main document first
-        let el = document.querySelector(selector);
-        if (el) return el;
-
-        // Try iframes
-        try {
-            const iframes = document.querySelectorAll('iframe');
-            for (const iframe of iframes) {
-                try {
-                    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-                    if (iframeDoc) {
-                        el = iframeDoc.querySelector(selector);
-                        if (el) return el;
-                    }
-                } catch (e) {
-                    // Cross-origin iframe, skip
-                }
-            }
-        } catch (e) {
-            // Ignore iframe errors
-        }
-
-        return null;
+    // Skip execution on system iframes
+    if (shouldSkipHost()) {
+        console.log('[GHL Tab Title] Skipping system host:', window.location.hostname);
+        return;
     }
 
     /**
@@ -102,7 +132,8 @@
      * Extract contact name from GHL contact detail page
      */
     function extractFromGHLContactDetail() {
-        if (!window.location.pathname.includes('/contacts/detail/')) {
+        if (!window.location.pathname.includes('/contacts/detail/') &&
+            !window.location.href.includes('/contacts/detail/')) {
             return null;
         }
 
@@ -113,7 +144,7 @@
         ];
 
         for (const selector of selectors) {
-            const el = querySelectorAllFrames(selector);
+            const el = document.querySelector(selector);
             if (el) {
                 const text = el.textContent?.trim();
                 if (text && text.length > 1 && text.length < 100) {
@@ -127,98 +158,93 @@
     }
 
     /**
-     * Extract workflow/automation name from GHL workflow editor page
-     * From user's HTML:
-     * <h1 class="p-1 editable-header-text font-normal" id="cmp-header__txt--edit-workflow-name">NAME</h1>
+     * Extract workflow/automation name
+     * Works in both the main page context and the leadconnectorhq.com iframe
      */
     function extractFromGHLWorkflow() {
-        if (!window.location.pathname.includes('/workflow')) {
+        const pathname = window.location.pathname;
+        const href = window.location.href;
+
+        // Check if we're on a workflow page (either main or iframe)
+        const isWorkflowPage = pathname.includes('/workflow') || href.includes('/workflow');
+        if (!isWorkflowPage) {
             return null;
         }
 
         console.log('[GHL Tab Title] On workflow page, searching for name...');
+        console.log('[GHL Tab Title] Current host:', window.location.hostname);
 
-        // Based on actual HTML provided by user
+        // Selectors for workflow name based on user's HTML
         const selectors = [
-            // Exact ID from HTML
             '#cmp-header__txt--edit-workflow-name',
-            // Class-based selectors
             'h1.editable-header-text',
             '.editable-header-text',
-            // Parent container
             '#cmp-header__txt--edit-workflow-name-parent h1',
             '.workflow-name-input h1',
-            // The mirror span that also contains the text
             '.editable-header-text-mirror',
-            // Inside the n-ellipsis span
             '.n-ellipsis h1',
-            'span.n-ellipsis h1'
+            'span.n-ellipsis h1',
+            // Try any h1 that's not empty
+            'h1'
         ];
 
         for (const selector of selectors) {
-            const el = querySelectorAllFrames(selector);
-            if (el) {
+            const elements = document.querySelectorAll(selector);
+            for (const el of elements) {
                 const text = el.textContent?.trim();
                 console.log('[GHL Tab Title] Workflow selector', selector, 'found:', text);
                 if (text && text.length > 3 &&
                     text.toLowerCase() !== 'workflow' &&
-                    text.toLowerCase() !== 'workflows') {
+                    text.toLowerCase() !== 'workflows' &&
+                    !text.match(/^\d+$/)) {
                     return text;
                 }
             }
         }
 
-        // Diagnostic: Check what elements exist
-        console.log('[GHL Tab Title] Diagnostic - searching for workflow elements...');
-
-        // Check for the parent ID
-        const parent = document.getElementById('cmp-header__txt--edit-workflow-name-parent');
-        console.log('[GHL Tab Title] Parent element found:', !!parent, parent?.innerHTML?.substring(0, 100));
-
-        // Check for workflow-name-input class
-        const workflowInput = document.querySelector('.workflow-name-input');
-        console.log('[GHL Tab Title] workflow-name-input found:', !!workflowInput, workflowInput?.innerHTML?.substring(0, 100));
-
-        // Check all h1s
-        const allH1 = document.querySelectorAll('h1');
-        console.log('[GHL Tab Title] Total h1 elements found:', allH1.length);
-        allH1.forEach((el, i) => {
-            console.log(`[GHL Tab Title] h1[${i}]:`, el.id, el.className, '=', el.textContent?.trim()?.substring(0, 50));
+        // Log what we can find
+        console.log('[GHL Tab Title] All h1 elements on page:');
+        document.querySelectorAll('h1').forEach((el, i) => {
+            console.log(`  h1[${i}]:`, el.id || '(no id)', el.className || '(no class)', '=', el.textContent?.trim()?.substring(0, 50));
         });
 
         return null;
     }
 
     /**
-     * Extract form name from GHL form builder page
-     * From user's HTML:
-     * <div class="builder-form-name ..."><div contenteditable="true" class="... truncate">NAME</div></div>
+     * Extract form name from GHL form builder
+     * Works in both the main page context and the leadconnectorhq.com iframe
      */
     function extractFromGHLFormBuilder() {
-        if (!window.location.pathname.includes('/form-builder') &&
-            !window.location.pathname.includes('/forms/')) {
+        const pathname = window.location.pathname;
+        const href = window.location.href;
+
+        // Check if we're on a form builder page
+        const isFormPage = pathname.includes('/form-builder') || pathname.includes('/forms/') ||
+            href.includes('/form-builder') || href.includes('/forms/');
+        if (!isFormPage) {
             return null;
         }
 
         console.log('[GHL Tab Title] On form builder page, searching for name...');
+        console.log('[GHL Tab Title] Current host:', window.location.hostname);
 
-        // Based on actual HTML provided by user
+        // Selectors based on user's HTML
         const selectors = [
-            // The contenteditable div inside builder-form-name
             '.builder-form-name > div[contenteditable="true"]',
             '.builder-form-name div[contenteditable="true"]',
             'div.builder-form-name div[contenteditable]',
-            // Class patterns from the HTML
+            '#builder-header .builder-form-name div[contenteditable]',
             'div[contenteditable="true"].truncate',
             'div.truncate[contenteditable="true"]',
-            // Text-lg class
             'div[contenteditable="true"].text-lg',
-            '.text-lg[contenteditable="true"]'
+            // Try any contenteditable div
+            'div[contenteditable="true"]'
         ];
 
         for (const selector of selectors) {
-            const el = querySelectorAllFrames(selector);
-            if (el) {
+            const elements = document.querySelectorAll(selector);
+            for (const el of elements) {
                 const text = el.textContent?.trim();
                 console.log('[GHL Tab Title] Form selector', selector, 'found:', text);
                 if (text && text.length > 1 && text.length < 100 && isHumanReadable(text)) {
@@ -227,22 +253,10 @@
             }
         }
 
-        // Diagnostic: Check what elements exist
-        console.log('[GHL Tab Title] Diagnostic - searching for form elements...');
-
-        // Check for builder-form-name class
-        const formName = document.querySelector('.builder-form-name');
-        console.log('[GHL Tab Title] builder-form-name found:', !!formName, formName?.innerHTML?.substring(0, 100));
-
-        // Check for builder-header ID
-        const header = document.getElementById('builder-header');
-        console.log('[GHL Tab Title] builder-header found:', !!header);
-
-        // Check all contenteditable elements
-        const allEditable = document.querySelectorAll('[contenteditable="true"]');
-        console.log('[GHL Tab Title] Total contenteditable elements found:', allEditable.length);
-        allEditable.forEach((el, i) => {
-            console.log(`[GHL Tab Title] editable[${i}]:`, el.className?.substring(0, 50), '=', el.textContent?.trim()?.substring(0, 50));
+        // Log what we can find
+        console.log('[GHL Tab Title] All contenteditable elements on page:');
+        document.querySelectorAll('[contenteditable="true"]').forEach((el, i) => {
+            console.log(`  editable[${i}]:`, el.className?.substring(0, 30) || '(no class)', '=', el.textContent?.trim()?.substring(0, 50));
         });
 
         return null;
@@ -282,9 +296,7 @@
                         return text;
                     }
                 }
-            } catch (e) {
-                // Continue
-            }
+            } catch (e) { }
         }
 
         return null;
@@ -309,9 +321,7 @@
                         return text;
                     }
                 }
-            } catch (e) {
-                // Continue
-            }
+            } catch (e) { }
         }
 
         return null;
@@ -337,9 +347,7 @@
                         return text;
                     }
                 }
-            } catch (e) {
-                // Continue
-            }
+            } catch (e) { }
         }
 
         return null;
@@ -352,14 +360,18 @@
         const path = window.location.pathname;
         const segments = path.split('/').filter(s => s && s.length > 0);
 
-        const skipWords = ['v2', 'location', 'detail', 'edit', 'new', 'form-builder-v2', 'form-builder'];
+        // Skip these common route words and IDs
+        const skipWords = ['v2', 'location', 'detail', 'edit', 'new', 'form-builder-v2',
+            'form-builder', '__', 'auth', 'iframe', 'callback'];
 
         for (let i = segments.length - 1; i >= 0; i--) {
             const segment = segments[i];
+            // Skip IDs (long alphanumeric) and common route words
             if (!/^[0-9a-zA-Z-]{15,}$/i.test(segment) &&
                 !skipWords.includes(segment.toLowerCase())) {
                 const formatted = formatPathSegment(segment);
-                if (formatted.length > 2) {
+                // Skip very short results
+                if (formatted.length > 3) {
                     return formatted;
                 }
             }
@@ -401,19 +413,7 @@
     }
 
     /**
-     * Check if we're running in an iframe
-     */
-    function isInIframe() {
-        try {
-            return window.self !== window.top;
-        } catch (e) {
-            return true;
-        }
-    }
-
-    /**
      * Update the document title
-     * If in iframe, sends message to parent window
      */
     function updateTitle() {
         const context = extractPageContext();
@@ -479,6 +479,8 @@
      * Set up MutationObserver
      */
     function setupObserver() {
+        if (!document.body) return;
+
         const observer = new MutationObserver(debounce(() => {
             debouncedUpdate();
         }, CONFIG.observerDebounceMs));
@@ -497,7 +499,7 @@
                 debouncedUpdate();
             }
         });
-        urlObserver.observe(document, { subtree: true, childList: true });
+        urlObserver.observe(document.documentElement, { subtree: true, childList: true });
 
         window.addEventListener('popstate', debouncedUpdate);
         window.addEventListener('hashchange', debouncedUpdate);
@@ -508,6 +510,8 @@
      */
     function init() {
         console.log('[GHL Tab Title] Initializing on', window.location.hostname);
+        console.log('[GHL Tab Title] Is iframe:', isInIframe());
+        console.log('[GHL Tab Title] Is content iframe:', isContentIframe());
         console.log('[GHL Tab Title] Location ID:', getLocationId(), '-> Brand:', getBrandName());
         console.log('[GHL Tab Title] Current URL path:', window.location.pathname);
 
@@ -517,12 +521,14 @@
         setTimeout(updateTitle, 3000);
         setTimeout(updateTitle, 5000);
         setTimeout(updateTitle, 8000);
-        setTimeout(updateTitle, 12000);
 
         if (document.body) {
             setupObserver();
         } else {
-            document.addEventListener('DOMContentLoaded', setupObserver);
+            document.addEventListener('DOMContentLoaded', () => {
+                setupObserver();
+                updateTitle();
+            });
         }
     }
 
