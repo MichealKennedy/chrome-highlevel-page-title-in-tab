@@ -30,7 +30,6 @@
      * - /location/{locationId}/...
      */
     function getLocationId() {
-        // Match both /v2/location/ and /location/ patterns
         const match = window.location.pathname.match(/\/(?:v2\/)?location\/([^\/]+)/);
         return match ? match[1] : null;
     }
@@ -48,16 +47,12 @@
 
     /**
      * Extract page context from various UI elements
-     * Priority: GHL-specific selectors first, then generic fallbacks
      */
     function extractPageContext() {
         const strategies = [
-            // GHL-specific high-priority extractors
             extractFromGHLContactDetail,
             extractFromGHLWorkflow,
             extractFromGHLFormBuilder,
-            extractFromGHLSurveyBuilder,
-            // Generic fallbacks
             extractFromActiveNavItem,
             extractFromBreadcrumb,
             extractFromPageHeader,
@@ -80,18 +75,14 @@
 
     /**
      * Extract contact name from GHL contact detail page
-     * URL pattern: /contacts/detail/{id}
      */
     function extractFromGHLContactDetail() {
-        // Check if we're on a contact detail page
         if (!window.location.pathname.includes('/contacts/detail/')) {
             return null;
         }
 
-        // Selector for contact name - the span with hr-ellipsis inside the p.hr-text-semibold
         const selectors = [
             'p.hr-text-semibold span.hr-ellipsis',
-            'p.hr-text-semibold #hr-ellipsis-id',
             '#hr-ellipsis-id',
             '.hr-ellipsis.hr-ellipsis--line-clamp'
         ];
@@ -100,7 +91,6 @@
             const el = document.querySelector(selector);
             if (el) {
                 const text = el.textContent?.trim();
-                // Validate it looks like a name (not gibberish)
                 if (text && text.length > 1 && text.length < 100) {
                     console.log('[GHL Tab Title] Contact name found:', text);
                     return text;
@@ -113,61 +103,55 @@
 
     /**
      * Extract workflow/automation name from GHL workflow editor page
-     * URL patterns: 
-     * - /location/{id}/workflow/{workflowId}
-     * - /v2/location/{id}/workflows/...
+     * Based on user-provided HTML:
+     * <h1 class="p-1 editable-header-text font-normal">WORKFLOW NAME</h1>
      */
     function extractFromGHLWorkflow() {
-        // Check if we're on a workflow page
         if (!window.location.pathname.includes('/workflow')) {
             return null;
         }
 
         console.log('[GHL Tab Title] On workflow page, searching for name...');
 
-        // Try multiple selector strategies for the workflow name
+        // Search for h1 elements with editable-header-text class
+        // This is the stable class from the user's HTML
         const selectors = [
-            // The h1 inside the workflow name input
-            'h1#cmp-header__txt--edit-workflow-name',
-            '#cmp-header__txt--edit-workflow-name',
-            // The span containing the h1
-            '.n-ellipsis h1',
-            'span.n-ellipsis h1',
-            // The editable header text
             'h1.editable-header-text',
-            // Inside the workflow-name-input paragraph
-            'p.workflow-name-input h1',
+            'h1[class*="editable-header"]',
+            '.editable-header-text',
+            // Fallback: any h1 inside workflow-name-input
             '.workflow-name-input h1',
-            // The mirror span that contains the same text
-            'span.editable-header-text-mirror'
+            'p.workflow-name-input h1'
         ];
 
         for (const selector of selectors) {
             const el = document.querySelector(selector);
             if (el) {
                 const text = el.textContent?.trim();
-                console.log('[GHL Tab Title] Workflow selector', selector, 'found:', text);
-                // Skip if it's just "Workflow" or too short or looks like a number
+                console.log('[GHL Tab Title] Found with selector', selector, ':', text);
                 if (text && text.length > 3 &&
                     text.toLowerCase() !== 'workflow' &&
-                    text.toLowerCase() !== 'workflows' &&
-                    !text.match(/^[\d\s]+$/)) {
-                    console.log('[GHL Tab Title] Using workflow name:', text);
+                    text.toLowerCase() !== 'workflows') {
                     return text;
                 }
             }
         }
 
-        console.log('[GHL Tab Title] No workflow name found with selectors');
+        // Diagnostic: Log ALL h1 elements on the page
+        console.log('[GHL Tab Title] Diagnostic - All h1 elements:');
+        document.querySelectorAll('h1').forEach((el, i) => {
+            console.log(`  h1[${i}]:`, el.className, '=', el.textContent?.trim()?.substring(0, 50));
+        });
+
         return null;
     }
 
     /**
      * Extract form name from GHL form builder page
-     * URL pattern: /v2/location/{id}/form-builder-v2/{formId}
+     * Based on user-provided HTML:
+     * <div contenteditable="true" class="min-w-[1rem] max-w-2xl text-lg outline-none truncate">FORM NAME</div>
      */
     function extractFromGHLFormBuilder() {
-        // Check if we're on a form builder page
         if (!window.location.pathname.includes('/form-builder') &&
             !window.location.pathname.includes('/forms/')) {
             return null;
@@ -175,93 +159,51 @@
 
         console.log('[GHL Tab Title] On form builder page, searching for name...');
 
-        // More specific selectors for the form name
+        // More targeted selectors based on user's HTML
+        // The form name is in a contenteditable div with truncate class
         const selectors = [
-            // The contenteditable div inside builder-form-name
+            'div[contenteditable="true"].truncate',
+            'div.truncate[contenteditable="true"]',
+            'div[contenteditable="true"][class*="truncate"]',
+            'div[contenteditable="true"][class*="text-lg"]',
             '.builder-form-name div[contenteditable="true"]',
-            '.builder-form-name div[contenteditable]',
-            'div.builder-form-name > div[contenteditable]',
-            // Alternative form name locations
-            '.form-name-input',
-            '.form-header-name',
-            // The outer container might have the text
-            '.builder-form-name .truncate',
-            '.builder-form-name div.text-lg'
+            '.builder-form-name div[contenteditable]'
         ];
 
         for (const selector of selectors) {
             const el = document.querySelector(selector);
             if (el) {
                 const text = el.textContent?.trim();
-                console.log('[GHL Tab Title] Form selector', selector, 'found:', text);
-                // Validate the text is readable and not an ID
-                if (text && text.length > 1 && text.length < 100 && isHumanReadable(text)) {
-                    console.log('[GHL Tab Title] Using form name:', text);
-                    return text;
-                }
-            }
-        }
-
-        console.log('[GHL Tab Title] No form name found with selectors');
-        return null;
-    }
-
-    /**
-     * Extract survey name from GHL survey builder page
-     */
-    function extractFromGHLSurveyBuilder() {
-        // Check if we're on a survey builder page
-        if (!window.location.pathname.includes('/survey')) {
-            return null;
-        }
-
-        const selectors = [
-            'div.builder-form-name div[contenteditable="true"]',
-            '.survey-name-input',
-            '.survey-header input'
-        ];
-
-        for (const selector of selectors) {
-            const el = document.querySelector(selector);
-            if (el) {
-                const text = (el.value || el.textContent)?.trim();
+                console.log('[GHL Tab Title] Found with selector', selector, ':', text);
                 if (text && text.length > 1 && text.length < 100 && isHumanReadable(text)) {
                     return text;
                 }
             }
         }
 
+        // Diagnostic: Log ALL contenteditable elements on the page
+        console.log('[GHL Tab Title] Diagnostic - All contenteditable elements:');
+        document.querySelectorAll('[contenteditable="true"]').forEach((el, i) => {
+            console.log(`  contenteditable[${i}]:`, el.className, '=', el.textContent?.trim()?.substring(0, 50));
+        });
+
         return null;
     }
 
     /**
-     * Check if text is human readable (not an encoded ID or gibberish)
+     * Check if text is human readable (not an encoded ID)
      */
     function isHumanReadable(text) {
         if (!text || text.length < 2) return false;
 
-        // Reject if it looks like a camelCase ID (like UuuvQyzrBD7geMdO6eQb)
-        if (/^[A-Za-z0-9]{15,}$/.test(text.replace(/\s/g, ''))) {
+        // Reject if it looks like a camelCase/random ID (mixed case, no spaces, 15+ chars)
+        const noSpaces = text.replace(/\s/g, '');
+        if (/^[A-Za-z0-9]{15,}$/.test(noSpaces) && !/\s/.test(text)) {
             console.log('[GHL Tab Title] Rejected as ID-like:', text);
             return false;
         }
 
-        // Reject if mostly random-looking characters without proper word structure
-        const words = text.split(/\s+/);
-        let validWords = 0;
-        for (const word of words) {
-            // A valid word should have vowels and consonants mixed reasonably
-            if (word.length <= 3 || /[aeiouAEIOU]/.test(word)) {
-                validWords++;
-            }
-        }
-
-        // At least 50% should look like real words
-        const isReadable = (validWords / words.length) >= 0.5;
-        if (!isReadable) {
-            console.log('[GHL Tab Title] Rejected as unreadable:', text);
-        }
-        return isReadable;
+        return true;
     }
 
     /**
@@ -273,12 +215,8 @@
             '[class*="active"] [class*="nav-text"]',
             '.nav-link.active',
             '[aria-current="page"]',
-            '[data-active="true"]',
             '.hl-nav-item.active',
-            '.sidebar-item.active',
-            'nav .active',
-            '.menu .active',
-            '[role="menuitem"][aria-selected="true"]'
+            '.sidebar-item.active'
         ];
 
         for (const selector of selectors) {
@@ -291,7 +229,7 @@
                     }
                 }
             } catch (e) {
-                // Selector might be invalid, continue
+                // Continue
             }
         }
 
@@ -305,8 +243,7 @@
         const selectors = [
             '[class*="breadcrumb"] li:last-child',
             '[class*="breadcrumb"] span:last-child',
-            '.breadcrumb-item:last-child',
-            '[aria-label*="breadcrumb"] li:last-child'
+            '.breadcrumb-item:last-child'
         ];
 
         for (const selector of selectors) {
@@ -327,16 +264,14 @@
     }
 
     /**
-     * Look for page headers (h1, main headings)
+     * Look for page headers
      */
     function extractFromPageHeader() {
         const selectors = [
             'main h1',
             '[role="main"] h1',
             '.page-title',
-            '.page-header h1',
-            '[class*="page-title"]',
-            '[class*="header-title"]'
+            '.page-header h1'
         ];
 
         for (const selector of selectors) {
@@ -361,30 +296,18 @@
      */
     function extractFromUrlPath() {
         const path = window.location.pathname;
-        const hash = window.location.hash;
-
-        // Try hash first (common in SPAs)
-        if (hash && hash.length > 1) {
-            const hashPath = hash.replace(/^#\/?/, '').split('/')[0];
-            if (hashPath && !/^[0-9a-f-]{15,}$/i.test(hashPath)) {
-                return formatPathSegment(hashPath);
-            }
-        }
-
-        // Use pathname - find meaningful segment
         const segments = path.split('/').filter(s => s && s.length > 0);
-        if (segments.length > 0) {
-            // Skip these route words and IDs
-            const skipWords = ['v2', 'location', 'detail', 'edit', 'new', 'form-builder-v2', 'form-builder'];
-            for (let i = segments.length - 1; i >= 0; i--) {
-                const segment = segments[i];
-                // Skip segments that look like IDs (long alphanumeric) or common route words
-                if (!/^[0-9a-zA-Z-]{15,}$/i.test(segment) &&
-                    !skipWords.includes(segment.toLowerCase())) {
-                    const formatted = formatPathSegment(segment);
-                    if (formatted.length > 2) {
-                        return formatted;
-                    }
+
+        const skipWords = ['v2', 'location', 'detail', 'edit', 'new', 'form-builder-v2', 'form-builder'];
+
+        for (let i = segments.length - 1; i >= 0; i--) {
+            const segment = segments[i];
+            // Skip IDs and common route words
+            if (!/^[0-9a-zA-Z-]{15,}$/i.test(segment) &&
+                !skipWords.includes(segment.toLowerCase())) {
+                const formatted = formatPathSegment(segment);
+                if (formatted.length > 2) {
+                    return formatted;
                 }
             }
         }
@@ -409,13 +332,8 @@
      */
     function getCleanText(el) {
         if (!el) return null;
-
-        // Clone to avoid modifying the DOM
         const clone = el.cloneNode(true);
-
-        // Remove hidden elements and icons
-        clone.querySelectorAll('[hidden], .hidden, [class*="icon"], svg, i').forEach(e => e.remove());
-
+        clone.querySelectorAll('[hidden], .hidden, svg, i').forEach(e => e.remove());
         return clone.textContent?.trim() || null;
     }
 
@@ -431,17 +349,13 @@
 
     /**
      * Update the document title
-     * Uses document.title for browser history compatibility
      */
     function updateTitle() {
         const context = extractPageContext();
         const brandName = getBrandName();
 
         if (context) {
-            // Page name first, location/brand name last (e.g., "Crystal Johnson | FedImpact")
             const newTitle = `${context}${CONFIG.titleSeparator}${brandName}`;
-
-            // Only update if different to avoid loops
             if (document.title !== newTitle) {
                 document.title = newTitle;
                 console.log('[GHL Tab Title] Updated:', newTitle);
@@ -462,18 +376,16 @@
         };
     }
 
-    // Debounced update function
     const debouncedUpdate = debounce(updateTitle, CONFIG.updateDebounceMs);
 
     /**
-     * Set up MutationObserver to watch for navigation changes
+     * Set up MutationObserver
      */
     function setupObserver() {
         const observer = new MutationObserver(debounce(() => {
             debouncedUpdate();
         }, CONFIG.observerDebounceMs));
 
-        // Observe the body for changes
         observer.observe(document.body, {
             childList: true,
             subtree: true,
@@ -481,43 +393,32 @@
             attributeFilter: ['class', 'aria-current', 'aria-selected', 'data-active']
         });
 
-        // Also listen for URL changes (SPA navigation)
         let lastUrl = location.href;
         const urlObserver = new MutationObserver(() => {
             if (location.href !== lastUrl) {
                 lastUrl = location.href;
-                console.log('[GHL Tab Title] URL changed, updating...');
                 debouncedUpdate();
             }
         });
         urlObserver.observe(document, { subtree: true, childList: true });
 
-        // Listen for popstate (browser back/forward)
-        window.addEventListener('popstate', () => {
-            console.log('[GHL Tab Title] Popstate event');
-            debouncedUpdate();
-        });
-
-        // Listen for hashchange
-        window.addEventListener('hashchange', () => {
-            console.log('[GHL Tab Title] Hashchange event');
-            debouncedUpdate();
-        });
+        window.addEventListener('popstate', debouncedUpdate);
+        window.addEventListener('hashchange', debouncedUpdate);
     }
 
     /**
-     * Initialize the extension
+     * Initialize
      */
     function init() {
         console.log('[GHL Tab Title] Initializing on', window.location.hostname);
         console.log('[GHL Tab Title] Location ID:', getLocationId(), '-> Brand:', getBrandName());
 
-        // Initial title update (with delays for SPA hydration)
+        // Multiple delayed updates to catch Vue hydration
         setTimeout(updateTitle, 500);
         setTimeout(updateTitle, 1500);
         setTimeout(updateTitle, 3000);
+        setTimeout(updateTitle, 5000);
 
-        // Set up observers
         if (document.body) {
             setupObserver();
         } else {
@@ -525,6 +426,5 @@
         }
     }
 
-    // Start
     init();
 })();
