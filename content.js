@@ -15,7 +15,6 @@
         updateDebounceMs: 150,
         observerDebounceMs: 100,
         titleSeparator: ' | ',
-        // Location ID to brand name mapping
         locationNames: {
             'IgHEOk98NvraO0gtWVaL': 'FedImpact',
             '8K55T8slMH0JRhCDHBEW': 'ProFeds'
@@ -25,9 +24,6 @@
 
     /**
      * Extract location ID from URL path
-     * Handles both URL patterns:
-     * - /v2/location/{locationId}/...
-     * - /location/{locationId}/...
      */
     function getLocationId() {
         const match = window.location.pathname.match(/\/(?:v2\/)?location\/([^\/]+)/);
@@ -43,6 +39,35 @@
             return CONFIG.locationNames[locationId];
         }
         return CONFIG.defaultBrandName;
+    }
+
+    /**
+     * Search for element in document and all iframes
+     */
+    function querySelectorAllFrames(selector) {
+        // Try main document first
+        let el = document.querySelector(selector);
+        if (el) return el;
+
+        // Try iframes
+        try {
+            const iframes = document.querySelectorAll('iframe');
+            for (const iframe of iframes) {
+                try {
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+                    if (iframeDoc) {
+                        el = iframeDoc.querySelector(selector);
+                        if (el) return el;
+                    }
+                } catch (e) {
+                    // Cross-origin iframe, skip
+                }
+            }
+        } catch (e) {
+            // Ignore iframe errors
+        }
+
+        return null;
     }
 
     /**
@@ -88,7 +113,7 @@
         ];
 
         for (const selector of selectors) {
-            const el = document.querySelector(selector);
+            const el = querySelectorAllFrames(selector);
             if (el) {
                 const text = el.textContent?.trim();
                 if (text && text.length > 1 && text.length < 100) {
@@ -103,8 +128,8 @@
 
     /**
      * Extract workflow/automation name from GHL workflow editor page
-     * Based on user-provided HTML:
-     * <h1 class="p-1 editable-header-text font-normal">WORKFLOW NAME</h1>
+     * From user's HTML:
+     * <h1 class="p-1 editable-header-text font-normal" id="cmp-header__txt--edit-workflow-name">NAME</h1>
      */
     function extractFromGHLWorkflow() {
         if (!window.location.pathname.includes('/workflow')) {
@@ -113,22 +138,28 @@
 
         console.log('[GHL Tab Title] On workflow page, searching for name...');
 
-        // Search for h1 elements with editable-header-text class
-        // This is the stable class from the user's HTML
+        // Based on actual HTML provided by user
         const selectors = [
+            // Exact ID from HTML
+            '#cmp-header__txt--edit-workflow-name',
+            // Class-based selectors
             'h1.editable-header-text',
-            'h1[class*="editable-header"]',
             '.editable-header-text',
-            // Fallback: any h1 inside workflow-name-input
+            // Parent container
+            '#cmp-header__txt--edit-workflow-name-parent h1',
             '.workflow-name-input h1',
-            'p.workflow-name-input h1'
+            // The mirror span that also contains the text
+            '.editable-header-text-mirror',
+            // Inside the n-ellipsis span
+            '.n-ellipsis h1',
+            'span.n-ellipsis h1'
         ];
 
         for (const selector of selectors) {
-            const el = document.querySelector(selector);
+            const el = querySelectorAllFrames(selector);
             if (el) {
                 const text = el.textContent?.trim();
-                console.log('[GHL Tab Title] Found with selector', selector, ':', text);
+                console.log('[GHL Tab Title] Workflow selector', selector, 'found:', text);
                 if (text && text.length > 3 &&
                     text.toLowerCase() !== 'workflow' &&
                     text.toLowerCase() !== 'workflows') {
@@ -137,10 +168,22 @@
             }
         }
 
-        // Diagnostic: Log ALL h1 elements on the page
-        console.log('[GHL Tab Title] Diagnostic - All h1 elements:');
-        document.querySelectorAll('h1').forEach((el, i) => {
-            console.log(`  h1[${i}]:`, el.className, '=', el.textContent?.trim()?.substring(0, 50));
+        // Diagnostic: Check what elements exist
+        console.log('[GHL Tab Title] Diagnostic - searching for workflow elements...');
+
+        // Check for the parent ID
+        const parent = document.getElementById('cmp-header__txt--edit-workflow-name-parent');
+        console.log('[GHL Tab Title] Parent element found:', !!parent, parent?.innerHTML?.substring(0, 100));
+
+        // Check for workflow-name-input class
+        const workflowInput = document.querySelector('.workflow-name-input');
+        console.log('[GHL Tab Title] workflow-name-input found:', !!workflowInput, workflowInput?.innerHTML?.substring(0, 100));
+
+        // Check all h1s
+        const allH1 = document.querySelectorAll('h1');
+        console.log('[GHL Tab Title] Total h1 elements found:', allH1.length);
+        allH1.forEach((el, i) => {
+            console.log(`[GHL Tab Title] h1[${i}]:`, el.id, el.className, '=', el.textContent?.trim()?.substring(0, 50));
         });
 
         return null;
@@ -148,8 +191,8 @@
 
     /**
      * Extract form name from GHL form builder page
-     * Based on user-provided HTML:
-     * <div contenteditable="true" class="min-w-[1rem] max-w-2xl text-lg outline-none truncate">FORM NAME</div>
+     * From user's HTML:
+     * <div class="builder-form-name ..."><div contenteditable="true" class="... truncate">NAME</div></div>
      */
     function extractFromGHLFormBuilder() {
         if (!window.location.pathname.includes('/form-builder') &&
@@ -159,50 +202,61 @@
 
         console.log('[GHL Tab Title] On form builder page, searching for name...');
 
-        // More targeted selectors based on user's HTML
-        // The form name is in a contenteditable div with truncate class
+        // Based on actual HTML provided by user
         const selectors = [
+            // The contenteditable div inside builder-form-name
+            '.builder-form-name > div[contenteditable="true"]',
+            '.builder-form-name div[contenteditable="true"]',
+            'div.builder-form-name div[contenteditable]',
+            // Class patterns from the HTML
             'div[contenteditable="true"].truncate',
             'div.truncate[contenteditable="true"]',
-            'div[contenteditable="true"][class*="truncate"]',
-            'div[contenteditable="true"][class*="text-lg"]',
-            '.builder-form-name div[contenteditable="true"]',
-            '.builder-form-name div[contenteditable]'
+            // Text-lg class
+            'div[contenteditable="true"].text-lg',
+            '.text-lg[contenteditable="true"]'
         ];
 
         for (const selector of selectors) {
-            const el = document.querySelector(selector);
+            const el = querySelectorAllFrames(selector);
             if (el) {
                 const text = el.textContent?.trim();
-                console.log('[GHL Tab Title] Found with selector', selector, ':', text);
+                console.log('[GHL Tab Title] Form selector', selector, 'found:', text);
                 if (text && text.length > 1 && text.length < 100 && isHumanReadable(text)) {
                     return text;
                 }
             }
         }
 
-        // Diagnostic: Log ALL contenteditable elements on the page
-        console.log('[GHL Tab Title] Diagnostic - All contenteditable elements:');
-        document.querySelectorAll('[contenteditable="true"]').forEach((el, i) => {
-            console.log(`  contenteditable[${i}]:`, el.className, '=', el.textContent?.trim()?.substring(0, 50));
+        // Diagnostic: Check what elements exist
+        console.log('[GHL Tab Title] Diagnostic - searching for form elements...');
+
+        // Check for builder-form-name class
+        const formName = document.querySelector('.builder-form-name');
+        console.log('[GHL Tab Title] builder-form-name found:', !!formName, formName?.innerHTML?.substring(0, 100));
+
+        // Check for builder-header ID
+        const header = document.getElementById('builder-header');
+        console.log('[GHL Tab Title] builder-header found:', !!header);
+
+        // Check all contenteditable elements
+        const allEditable = document.querySelectorAll('[contenteditable="true"]');
+        console.log('[GHL Tab Title] Total contenteditable elements found:', allEditable.length);
+        allEditable.forEach((el, i) => {
+            console.log(`[GHL Tab Title] editable[${i}]:`, el.className?.substring(0, 50), '=', el.textContent?.trim()?.substring(0, 50));
         });
 
         return null;
     }
 
     /**
-     * Check if text is human readable (not an encoded ID)
+     * Check if text is human readable
      */
     function isHumanReadable(text) {
         if (!text || text.length < 2) return false;
-
-        // Reject if it looks like a camelCase/random ID (mixed case, no spaces, 15+ chars)
         const noSpaces = text.replace(/\s/g, '');
         if (/^[A-Za-z0-9]{15,}$/.test(noSpaces) && !/\s/.test(text)) {
-            console.log('[GHL Tab Title] Rejected as ID-like:', text);
             return false;
         }
-
         return true;
     }
 
@@ -302,7 +356,6 @@
 
         for (let i = segments.length - 1; i >= 0; i--) {
             const segment = segments[i];
-            // Skip IDs and common route words
             if (!/^[0-9a-zA-Z-]{15,}$/i.test(segment) &&
                 !skipWords.includes(segment.toLowerCase())) {
                 const formatted = formatPathSegment(segment);
@@ -348,7 +401,19 @@
     }
 
     /**
+     * Check if we're running in an iframe
+     */
+    function isInIframe() {
+        try {
+            return window.self !== window.top;
+        } catch (e) {
+            return true;
+        }
+    }
+
+    /**
      * Update the document title
+     * If in iframe, sends message to parent window
      */
     function updateTitle() {
         const context = extractPageContext();
@@ -356,13 +421,45 @@
 
         if (context) {
             const newTitle = `${context}${CONFIG.titleSeparator}${brandName}`;
-            if (document.title !== newTitle) {
-                document.title = newTitle;
-                console.log('[GHL Tab Title] Updated:', newTitle);
+
+            if (isInIframe()) {
+                // We're in an iframe - send message to parent
+                console.log('[GHL Tab Title] In iframe, sending to parent:', newTitle);
+                try {
+                    window.parent.postMessage({
+                        type: 'GHL_TAB_TITLE_UPDATE',
+                        title: newTitle,
+                        context: context,
+                        brandName: brandName
+                    }, '*');
+                } catch (e) {
+                    console.log('[GHL Tab Title] Could not post to parent:', e);
+                }
+            } else {
+                // We're in the top window - update title directly
+                if (document.title !== newTitle) {
+                    document.title = newTitle;
+                    console.log('[GHL Tab Title] Updated:', newTitle);
+                }
             }
         } else {
-            console.log('[GHL Tab Title] No context found, keeping original title');
+            console.log('[GHL Tab Title] No context found in this frame');
         }
+    }
+
+    /**
+     * Listen for messages from iframes (only in top window)
+     */
+    if (!isInIframe()) {
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'GHL_TAB_TITLE_UPDATE') {
+                const newTitle = event.data.title;
+                if (newTitle && document.title !== newTitle) {
+                    document.title = newTitle;
+                    console.log('[GHL Tab Title] Updated from iframe:', newTitle);
+                }
+            }
+        });
     }
 
     /**
@@ -412,12 +509,15 @@
     function init() {
         console.log('[GHL Tab Title] Initializing on', window.location.hostname);
         console.log('[GHL Tab Title] Location ID:', getLocationId(), '-> Brand:', getBrandName());
+        console.log('[GHL Tab Title] Current URL path:', window.location.pathname);
 
-        // Multiple delayed updates to catch Vue hydration
+        // Multiple delayed updates with longer waits for Vue hydration
         setTimeout(updateTitle, 500);
         setTimeout(updateTitle, 1500);
         setTimeout(updateTitle, 3000);
         setTimeout(updateTitle, 5000);
+        setTimeout(updateTitle, 8000);
+        setTimeout(updateTitle, 12000);
 
         if (document.body) {
             setupObserver();

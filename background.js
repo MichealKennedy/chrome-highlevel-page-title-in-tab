@@ -35,15 +35,15 @@ function matchesDomain(url, domains) {
 }
 
 /**
- * Inject content script into a tab
+ * Inject content script into a tab and all its iframes
  */
 async function injectContentScript(tabId) {
     try {
         await chrome.scripting.executeScript({
-            target: { tabId },
+            target: { tabId, allFrames: true },
             files: ['content.js']
         });
-        console.log('[GHL Tab Title] Injected into tab:', tabId);
+        console.log('[GHL Tab Title] Injected into tab and all frames:', tabId);
     } catch (e) {
         // Tab might not be injectable (chrome://, etc.)
         console.log('[GHL Tab Title] Could not inject into tab:', tabId, e.message);
