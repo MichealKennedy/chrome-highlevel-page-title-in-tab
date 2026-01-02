@@ -12,15 +12,14 @@
 
     // Configuration
     const CONFIG = {
-        updateDebounceMs: 150,
-        observerDebounceMs: 100,
+        updateDebounceMs: 200,
+        observerDebounceMs: 150,
         titleSeparator: ' | ',
         locationNames: {
             'IgHEOk98NvraO0gtWVaL': 'FedImpact',
             '8K55T8slMH0JRhCDHBEW': 'ProFeds'
         },
         defaultBrandName: 'GHL',
-        // Skip these hosts - they're system iframes, not content
         skipHosts: [
             'firebaseapp.com',
             'googleapis.com',
@@ -28,6 +27,9 @@
             'google.com'
         ]
     };
+
+    // Cache for brand name (can be set by parent window)
+    let cachedBrandName = null;
 
     /**
      * Check if current host should be skipped
@@ -49,7 +51,7 @@
     }
 
     /**
-     * Check if we're in a leadconnectorhq.com iframe (the actual content iframes)
+     * Check if we're in a leadconnectorhq.com iframe
      */
     function isContentIframe() {
         const host = window.location.hostname.toLowerCase();
@@ -57,14 +59,14 @@
     }
 
     /**
-     * Extract location ID from URL path (works in both main page and iframes)
+     * Extract location ID from URL path
      */
     function getLocationId() {
-        // Try current window's URL first
+        // Try current window's URL
         let match = window.location.pathname.match(/\/(?:v2\/)?location\/([^\/]+)/);
         if (match) return match[1];
 
-        // Try getting from referrer
+        // Try referrer (often contains the parent URL)
         try {
             if (document.referrer) {
                 match = document.referrer.match(/\/(?:v2\/)?location\/([^\/]+)/);
@@ -72,7 +74,7 @@
             }
         } catch (e) { }
 
-        // Try getting from parent URL (if accessible)
+        // Try parent URL (only works for same-origin)
         try {
             if (window.parent !== window) {
                 match = window.parent.location.pathname.match(/\/(?:v2\/)?location\/([^\/]+)/);
@@ -87,21 +89,24 @@
      * Get brand name based on location ID
      */
     function getBrandName() {
+        // Use cached value if available (set by parent)
+        if (cachedBrandName) return cachedBrandName;
+
         const locationId = getLocationId();
         if (locationId && CONFIG.locationNames[locationId]) {
-            return CONFIG.locationNames[locationId];
+            cachedBrandName = CONFIG.locationNames[locationId];
+            return cachedBrandName;
         }
         return CONFIG.defaultBrandName;
     }
 
     // Skip execution on system iframes
     if (shouldSkipHost()) {
-        console.log('[GHL Tab Title] Skipping system host:', window.location.hostname);
         return;
     }
 
     /**
-     * Extract page context from various UI elements
+     * Extract page context
      */
     function extractPageContext() {
         const strategies = [
@@ -120,16 +125,14 @@
                 if (context && context.trim()) {
                     return cleanContext(context);
                 }
-            } catch (e) {
-                console.log('[GHL Tab Title] Strategy error:', e);
-            }
+            } catch (e) { }
         }
 
         return null;
     }
 
     /**
-     * Extract contact name from GHL contact detail page
+     * Extract contact name
      */
     function extractFromGHLContactDetail() {
         if (!window.location.pathname.includes('/contacts/detail/') &&
@@ -148,117 +151,70 @@
             if (el) {
                 const text = el.textContent?.trim();
                 if (text && text.length > 1 && text.length < 100) {
-                    console.log('[GHL Tab Title] Contact name found:', text);
                     return text;
                 }
             }
         }
-
         return null;
     }
 
     /**
      * Extract workflow/automation name
-     * Works in both the main page context and the leadconnectorhq.com iframe
      */
     function extractFromGHLWorkflow() {
         const pathname = window.location.pathname;
-        const href = window.location.href;
-
-        // Check if we're on a workflow page (either main or iframe)
-        const isWorkflowPage = pathname.includes('/workflow') || href.includes('/workflow');
-        if (!isWorkflowPage) {
+        if (!pathname.includes('/workflow')) {
             return null;
         }
 
-        console.log('[GHL Tab Title] On workflow page, searching for name...');
-        console.log('[GHL Tab Title] Current host:', window.location.hostname);
-
-        // Selectors for workflow name based on user's HTML
         const selectors = [
             '#cmp-header__txt--edit-workflow-name',
             'h1.editable-header-text',
             '.editable-header-text',
-            '#cmp-header__txt--edit-workflow-name-parent h1',
             '.workflow-name-input h1',
             '.editable-header-text-mirror',
-            '.n-ellipsis h1',
-            'span.n-ellipsis h1',
-            // Try any h1 that's not empty
-            'h1'
+            '.n-ellipsis h1'
         ];
 
         for (const selector of selectors) {
-            const elements = document.querySelectorAll(selector);
-            for (const el of elements) {
+            const el = document.querySelector(selector);
+            if (el) {
                 const text = el.textContent?.trim();
-                console.log('[GHL Tab Title] Workflow selector', selector, 'found:', text);
                 if (text && text.length > 3 &&
                     text.toLowerCase() !== 'workflow' &&
-                    text.toLowerCase() !== 'workflows' &&
-                    !text.match(/^\d+$/)) {
+                    text.toLowerCase() !== 'workflows') {
                     return text;
                 }
             }
         }
-
-        // Log what we can find
-        console.log('[GHL Tab Title] All h1 elements on page:');
-        document.querySelectorAll('h1').forEach((el, i) => {
-            console.log(`  h1[${i}]:`, el.id || '(no id)', el.className || '(no class)', '=', el.textContent?.trim()?.substring(0, 50));
-        });
-
         return null;
     }
 
     /**
-     * Extract form name from GHL form builder
-     * Works in both the main page context and the leadconnectorhq.com iframe
+     * Extract form name
      */
     function extractFromGHLFormBuilder() {
         const pathname = window.location.pathname;
-        const href = window.location.href;
-
-        // Check if we're on a form builder page
-        const isFormPage = pathname.includes('/form-builder') || pathname.includes('/forms/') ||
-            href.includes('/form-builder') || href.includes('/forms/');
-        if (!isFormPage) {
+        if (!pathname.includes('/form-builder') && !pathname.includes('/forms/')) {
             return null;
         }
 
-        console.log('[GHL Tab Title] On form builder page, searching for name...');
-        console.log('[GHL Tab Title] Current host:', window.location.hostname);
-
-        // Selectors based on user's HTML
         const selectors = [
             '.builder-form-name > div[contenteditable="true"]',
             '.builder-form-name div[contenteditable="true"]',
-            'div.builder-form-name div[contenteditable]',
-            '#builder-header .builder-form-name div[contenteditable]',
             'div[contenteditable="true"].truncate',
-            'div.truncate[contenteditable="true"]',
-            'div[contenteditable="true"].text-lg',
-            // Try any contenteditable div
-            'div[contenteditable="true"]'
+            'div[contenteditable="true"].text-lg'
         ];
 
         for (const selector of selectors) {
-            const elements = document.querySelectorAll(selector);
-            for (const el of elements) {
+            const el = document.querySelector(selector);
+            if (el) {
                 const text = el.textContent?.trim();
-                console.log('[GHL Tab Title] Form selector', selector, 'found:', text);
                 if (text && text.length > 1 && text.length < 100 && isHumanReadable(text)) {
                     return text;
                 }
             }
         }
-
-        // Log what we can find
-        console.log('[GHL Tab Title] All contenteditable elements on page:');
-        document.querySelectorAll('[contenteditable="true"]').forEach((el, i) => {
-            console.log(`  editable[${i}]:`, el.className?.substring(0, 30) || '(no class)', '=', el.textContent?.trim()?.substring(0, 50));
-        });
-
         return null;
     }
 
@@ -282,9 +238,7 @@
             '[class*="active"] [class*="menu-item-text"]',
             '[class*="active"] [class*="nav-text"]',
             '.nav-link.active',
-            '[aria-current="page"]',
-            '.hl-nav-item.active',
-            '.sidebar-item.active'
+            '[aria-current="page"]'
         ];
 
         for (const selector of selectors) {
@@ -298,7 +252,6 @@
                 }
             } catch (e) { }
         }
-
         return null;
     }
 
@@ -308,7 +261,6 @@
     function extractFromBreadcrumb() {
         const selectors = [
             '[class*="breadcrumb"] li:last-child',
-            '[class*="breadcrumb"] span:last-child',
             '.breadcrumb-item:last-child'
         ];
 
@@ -323,7 +275,6 @@
                 }
             } catch (e) { }
         }
-
         return null;
     }
 
@@ -331,12 +282,7 @@
      * Look for page headers
      */
     function extractFromPageHeader() {
-        const selectors = [
-            'main h1',
-            '[role="main"] h1',
-            '.page-title',
-            '.page-header h1'
-        ];
+        const selectors = ['main h1', '[role="main"] h1', '.page-title'];
 
         for (const selector of selectors) {
             try {
@@ -349,7 +295,6 @@
                 }
             } catch (e) { }
         }
-
         return null;
     }
 
@@ -359,30 +304,22 @@
     function extractFromUrlPath() {
         const path = window.location.pathname;
         const segments = path.split('/').filter(s => s && s.length > 0);
-
-        // Skip these common route words and IDs
         const skipWords = ['v2', 'location', 'detail', 'edit', 'new', 'form-builder-v2',
             'form-builder', '__', 'auth', 'iframe', 'callback'];
 
         for (let i = segments.length - 1; i >= 0; i--) {
             const segment = segments[i];
-            // Skip IDs (long alphanumeric) and common route words
             if (!/^[0-9a-zA-Z-]{15,}$/i.test(segment) &&
                 !skipWords.includes(segment.toLowerCase())) {
                 const formatted = formatPathSegment(segment);
-                // Skip very short results
                 if (formatted.length > 3) {
                     return formatted;
                 }
             }
         }
-
         return null;
     }
 
-    /**
-     * Format a URL path segment into readable text
-     */
     function formatPathSegment(segment) {
         return segment
             .replace(/[-_]/g, ' ')
@@ -392,9 +329,6 @@
             .join(' ');
     }
 
-    /**
-     * Get clean text content from an element
-     */
     function getCleanText(el) {
         if (!el) return null;
         const clone = el.cloneNode(true);
@@ -402,14 +336,8 @@
         return clone.textContent?.trim() || null;
     }
 
-    /**
-     * Clean context text
-     */
     function cleanContext(text) {
-        return text
-            .replace(/\s+/g, ' ')
-            .trim()
-            .substring(0, 60);
+        return text.replace(/\s+/g, ' ').trim().substring(0, 60);
     }
 
     /**
@@ -417,54 +345,71 @@
      */
     function updateTitle() {
         const context = extractPageContext();
+        if (!context) return;
+
         const brandName = getBrandName();
+        const newTitle = `${context}${CONFIG.titleSeparator}${brandName}`;
 
-        if (context) {
-            const newTitle = `${context}${CONFIG.titleSeparator}${brandName}`;
-
-            if (isInIframe()) {
-                // We're in an iframe - send message to parent
-                console.log('[GHL Tab Title] In iframe, sending to parent:', newTitle);
-                try {
-                    window.parent.postMessage({
-                        type: 'GHL_TAB_TITLE_UPDATE',
-                        title: newTitle,
-                        context: context,
-                        brandName: brandName
-                    }, '*');
-                } catch (e) {
-                    console.log('[GHL Tab Title] Could not post to parent:', e);
-                }
-            } else {
-                // We're in the top window - update title directly
-                if (document.title !== newTitle) {
-                    document.title = newTitle;
-                    console.log('[GHL Tab Title] Updated:', newTitle);
-                }
-            }
+        if (isInIframe()) {
+            // Send to parent window
+            try {
+                window.parent.postMessage({
+                    type: 'GHL_TAB_TITLE_UPDATE',
+                    title: newTitle,
+                    context: context,
+                    brandName: brandName
+                }, '*');
+            } catch (e) { }
         } else {
-            console.log('[GHL Tab Title] No context found in this frame');
+            // Update directly
+            if (document.title !== newTitle) {
+                document.title = newTitle;
+            }
         }
     }
 
     /**
-     * Listen for messages from iframes (only in top window)
+     * Listen for messages (in top window)
      */
     if (!isInIframe()) {
         window.addEventListener('message', (event) => {
-            if (event.data && event.data.type === 'GHL_TAB_TITLE_UPDATE') {
+            if (event.data?.type === 'GHL_TAB_TITLE_UPDATE') {
+                // Prioritize iframe updates - they have the real content
                 const newTitle = event.data.title;
-                if (newTitle && document.title !== newTitle) {
+                if (newTitle) {
                     document.title = newTitle;
-                    console.log('[GHL Tab Title] Updated from iframe:', newTitle);
                 }
+            } else if (event.data?.type === 'GHL_REQUEST_BRAND') {
+                // Child iframe requesting brand info
+                const brandName = getBrandName();
+                const locationId = getLocationId();
+                event.source.postMessage({
+                    type: 'GHL_BRAND_INFO',
+                    brandName: brandName,
+                    locationId: locationId
+                }, '*');
             }
         });
     }
 
     /**
-     * Debounce helper
+     * Listen for brand info from parent (in iframes)
      */
+    if (isInIframe()) {
+        window.addEventListener('message', (event) => {
+            if (event.data?.type === 'GHL_BRAND_INFO') {
+                cachedBrandName = event.data.brandName;
+                // Re-run update with new brand
+                updateTitle();
+            }
+        });
+
+        // Request brand info from parent
+        try {
+            window.parent.postMessage({ type: 'GHL_REQUEST_BRAND' }, '*');
+        } catch (e) { }
+    }
+
     function debounce(fn, ms) {
         let timeout;
         return function (...args) {
@@ -475,9 +420,6 @@
 
     const debouncedUpdate = debounce(updateTitle, CONFIG.updateDebounceMs);
 
-    /**
-     * Set up MutationObserver
-     */
     function setupObserver() {
         if (!document.body) return;
 
@@ -493,34 +435,23 @@
         });
 
         let lastUrl = location.href;
-        const urlObserver = new MutationObserver(() => {
+        new MutationObserver(() => {
             if (location.href !== lastUrl) {
                 lastUrl = location.href;
                 debouncedUpdate();
             }
-        });
-        urlObserver.observe(document.documentElement, { subtree: true, childList: true });
+        }).observe(document.documentElement, { subtree: true, childList: true });
 
         window.addEventListener('popstate', debouncedUpdate);
         window.addEventListener('hashchange', debouncedUpdate);
     }
 
-    /**
-     * Initialize
-     */
     function init() {
-        console.log('[GHL Tab Title] Initializing on', window.location.hostname);
-        console.log('[GHL Tab Title] Is iframe:', isInIframe());
-        console.log('[GHL Tab Title] Is content iframe:', isContentIframe());
-        console.log('[GHL Tab Title] Location ID:', getLocationId(), '-> Brand:', getBrandName());
-        console.log('[GHL Tab Title] Current URL path:', window.location.pathname);
-
-        // Multiple delayed updates with longer waits for Vue hydration
-        setTimeout(updateTitle, 500);
-        setTimeout(updateTitle, 1500);
-        setTimeout(updateTitle, 3000);
+        // Delayed updates to catch Vue hydration
+        setTimeout(updateTitle, 300);
+        setTimeout(updateTitle, 1000);
+        setTimeout(updateTitle, 2500);
         setTimeout(updateTitle, 5000);
-        setTimeout(updateTitle, 8000);
 
         if (document.body) {
             setupObserver();
