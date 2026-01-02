@@ -23,9 +23,15 @@
 
     /**
      * Extract page context from various UI elements
+     * Priority: GHL-specific selectors first, then generic fallbacks
      */
     function extractPageContext() {
         const strategies = [
+            // GHL-specific high-priority extractors
+            extractFromGHLContactDetail,
+            extractFromGHLWorkflow,
+            extractFromGHLFormBuilder,
+            // Generic fallbacks
             extractFromActiveNavItem,
             extractFromBreadcrumb,
             extractFromPageHeader,
@@ -36,6 +42,108 @@
             const context = strategy();
             if (context && context.trim()) {
                 return cleanContext(context);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract contact name from GHL contact detail page
+     * URL pattern: /contacts/detail/{id}
+     */
+    function extractFromGHLContactDetail() {
+        // Check if we're on a contact detail page
+        if (!window.location.pathname.includes('/contacts/detail/')) {
+            return null;
+        }
+
+        // Selector for contact name in the top left
+        const selectors = [
+            '#hr-ellipsis-id',
+            '.hr-ellipsis.hr-ellipsis--line-clamp',
+            'p.hr-text-semibold .hr-ellipsis'
+        ];
+
+        for (const selector of selectors) {
+            try {
+                const el = document.querySelector(selector);
+                if (el) {
+                    const text = el.textContent?.trim();
+                    if (text && text.length > 1 && text.length < 100) {
+                        return text;
+                    }
+                }
+            } catch (e) {
+                // Continue
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract workflow/automation name from GHL workflow editor page
+     * URL pattern: /workflows/ or contains workflow in path
+     */
+    function extractFromGHLWorkflow() {
+        // Check if we're on a workflow page
+        if (!window.location.pathname.includes('/workflow')) {
+            return null;
+        }
+
+        // Selector for workflow name in the header
+        const selectors = [
+            '#cmp-header__txt--edit-workflow-name',
+            '.workflow-name-input h1',
+            '.editable-header-text'
+        ];
+
+        for (const selector of selectors) {
+            try {
+                const el = document.querySelector(selector);
+                if (el) {
+                    const text = el.textContent?.trim();
+                    if (text && text.length > 1 && text.length < 100) {
+                        return text;
+                    }
+                }
+            } catch (e) {
+                // Continue
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract form name from GHL form builder page
+     * URL pattern: /forms/ or form builder
+     */
+    function extractFromGHLFormBuilder() {
+        // Check if we're on a form builder page
+        if (!window.location.pathname.includes('/form')) {
+            return null;
+        }
+
+        // Selector for form name in the builder
+        const selectors = [
+            '.builder-form-name [contenteditable="true"]',
+            '.builder-form-name div[contenteditable]',
+            '.builder-form-name'
+        ];
+
+        for (const selector of selectors) {
+            try {
+                const el = document.querySelector(selector);
+                if (el) {
+                    const text = el.textContent?.trim();
+                    if (text && text.length > 1 && text.length < 100) {
+                        return text;
+                    }
+                }
+            } catch (e) {
+                // Continue
             }
         }
 
@@ -216,7 +324,8 @@
         const context = extractPageContext();
 
         if (context) {
-            const newTitle = `${originalTitle}${CONFIG.titleSeparator}${context}`;
+            // Page name first, brand name last (e.g., "Crystal Johnson | ProFeds")
+            const newTitle = `${context}${CONFIG.titleSeparator}${originalTitle}`;
             if (document.title !== newTitle) {
                 document.title = newTitle;
                 console.log('[GHL Tab Title] Updated:', newTitle);
