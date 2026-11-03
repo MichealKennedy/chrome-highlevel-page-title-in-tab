@@ -1,0 +1,8 @@
+node_modules/
+.output/
+.wxt/
+stats.html
+stats-*.json
+*.log
+.DS_Store
+Thumbs.db

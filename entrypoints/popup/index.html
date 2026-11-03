@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GHL Tab Title</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="header">
+      <img src="/icon/48.png" alt="" width="28" height="28" />
+      <h1>GHL Tab Title</h1>
+      <label class="toggle" title="Turn tab titles on or off">
+        <input type="checkbox" id="enabled" checked />
+        <span class="toggle-slider"></span>
+        <span class="visually-hidden">Enable tab titles</span>
+      </label>
+    </header>
+
+    <section class="card" id="page-card">
+      <div class="card-title-row">
+        <h2>This tab</h2>
+        <button type="button" class="btn btn-small" id="copy-debug" hidden>Copy debug info</button>
+      </div>
+      <div id="page-body"><p class="muted">Loading…</p></div>
+    </section>
+
+    <section class="card">
+      <h2>Title format</h2>
+      <div class="row">
+        <input type="text" id="template" spellcheck="false" autocomplete="off" />
+        <button type="button" class="btn btn-small" id="reset-template">Reset</button>
+      </div>
+      <p class="hint">
+        Use <code>{item}</code>, <code>{section}</code> and <code>{account}</code>. Empty parts
+        are left out with their separator.
+      </p>
+      <p class="preview" id="template-preview"></p>
+      <p class="error" id="template-error" hidden>Include at least one of {item}, {section} or {account}.</p>
+    </section>
+
+    <section class="card">
+      <h2>Nicknames</h2>
+      <div id="nickname-current"></div>
+      <ul class="nickname-list" id="nickname-list"></ul>
+      <p class="hint" id="nickname-empty">No nicknames yet. Open a HighLevel tab to add one.</p>
+    </section>
+
+    <p class="status" id="status" role="status"></p>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
