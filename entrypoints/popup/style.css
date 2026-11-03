@@ -221,19 +221,114 @@ code {
   background: #0f766e;
 }
 
-.nickname-current-label {
-  margin-bottom: 6px;
+.account-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
-.nickname-list {
+.account-name {
+  color: #e4e4e7;
+  font-weight: 600;
+}
+
+.icon-preview {
+  flex: none;
+  border-radius: 5px;
+}
+
+.field-label {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+.icon-row {
+  align-items: center;
+}
+
+input[type='text'].letter-input {
+  flex: none;
+  width: 44px;
+  text-align: center;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.swatch {
+  width: 20px;
+  height: 20px;
+  border: 2px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.swatch.selected,
+.color-picker.selected {
+  border-color: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+
+/* Custom colour: the current colour inside a rainbow ring. */
+.color-picker {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: conic-gradient(#ef4444, #eab308, #22c55e, #06b6d4, #3b82f6, #a855f7, #ef4444);
+  cursor: pointer;
+}
+
+.color-picker::-webkit-color-swatch-wrapper {
+  padding: 3px;
+}
+
+.color-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 3px;
+}
+
+.color-picker::-moz-color-swatch {
+  border: none;
+  border-radius: 3px;
+}
+
+.icon-actions {
+  margin-top: 6px;
+}
+
+.mini-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #a1a1aa;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.account-list {
   list-style: none;
-  margin-top: 8px;
+  margin-top: 10px;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.nickname-list li {
+.account-list li {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -242,14 +337,29 @@ code {
   background: rgba(255, 255, 255, 0.04);
 }
 
-.nickname-list .name {
+.account-list .name {
   flex: 1;
   color: #a1a1aa;
 }
 
-.nickname-list .nick {
+.account-list .nick {
   color: #fff;
   font-weight: 600;
+}
+
+.warning {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(217, 119, 6, 0.18);
+  border: 1px solid rgba(217, 119, 6, 0.5);
+  color: #fcd34d;
+}
+
+.warning p {
+  margin-top: 4px;
+  color: #fde68a;
+  font-size: 11px;
 }
 
 .btn-remove {

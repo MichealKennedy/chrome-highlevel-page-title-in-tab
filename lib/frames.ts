@@ -43,6 +43,16 @@ export const FRAME_EXTRACTORS: readonly { kind: FrameKind; extract: (doc: Docume
       return input && isShown(input) ? cleanText(input.value) || null : null;
     },
   },
+  {
+    // Documents & contracts editor: the name box in the toolbar. Its markup is generic, so it
+    // only counts inside the document builder app.
+    kind: 'document',
+    extract: (doc) => {
+      if (!doc.location?.pathname.includes('/proposals-estimates/')) return null;
+      const input = doc.querySelector<HTMLInputElement>('.hl-toolbar-group .n-input input');
+      return input ? cleanText(input.value) || null : null;
+    },
+  },
 ];
 
 export function extractFrameItem(doc: Document): { kind: FrameKind; name: string } | null {

@@ -1,4 +1,5 @@
 import { storage } from '#imports';
+import type { TabIconOverride } from './icon';
 import { DEFAULT_TEMPLATE } from './title';
 import type { Learned, Nickname } from './types';
 
@@ -10,6 +11,12 @@ export const templateItem = storage.defineItem<string>('sync:template', {
 export const nicknamesItem = storage.defineItem<Record<string, Nickname>>('sync:nicknames', {
   fallback: {},
 });
+export const tabIconsEnabledItem = storage.defineItem<boolean>('sync:tabIcons', { fallback: true });
+/** Per-sub-account icon letter/colour changes, keyed by location ID. */
+export const iconOverridesItem = storage.defineItem<Record<string, TabIconOverride>>(
+  'sync:iconOverrides',
+  { fallback: {} },
+);
 
 // Names learned while browsing, kept on this computer only.
 export const smartListNamesItem = storage.defineItem<Record<string, string>>(

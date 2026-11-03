@@ -19,7 +19,8 @@ export function resolve(input: ResolveInput): Resolution {
   const { rule, match } = matchRoute(page);
   const learned: Learned[] = [];
 
-  const item = rule.item?.({ doc, page, match, frames, nativeTitle, caches }) ?? null;
+  const ctx = { doc, page, match, frames, nativeTitle, caches };
+  const item = rule.item?.(ctx) ?? null;
   if (item?.learned) learned.push(item.learned);
 
   const section = resolveSection(rule, page, Boolean(item?.parts.length));
@@ -46,7 +47,23 @@ export function resolve(input: ResolveInput): Resolution {
     accountName: account.name,
     title: renderTitle(settings.template, parts),
     learned,
+    problem: findProblem(rule, ctx, item),
   };
+}
+
+/** What looks broken, if anything: the page rule's own check, then the sub-account name. */
+function findProblem(
+  rule: RouteRule,
+  ctx: Parameters<NonNullable<RouteRule['check']>>[0],
+  item: Parameters<NonNullable<RouteRule['check']>>[1],
+): string | null {
+  const fromRule = rule.check?.(ctx, item) ?? null;
+  if (fromRule) return fromRule;
+  const { page } = ctx;
+  if (page.locationId && page.ui === 'switchyard' && !page.accountName) {
+    return "Couldn't find the sub-account name.";
+  }
+  return null;
 }
 
 interface Part {

@@ -1,6 +1,7 @@
 import { browser, type ContentScriptContext } from '#imports';
 import { currentFrameReports, FRAME_STALE_GRACE_MS } from './frames';
-import { isMessage, type FramesResendMessage } from './messages';
+import { iconDataUrl, resolveIconStyle, type TabIconStyle } from './icon';
+import { isMessage, type FramesResendMessage, type HealthMessage } from './messages';
 import { looksLikeHighLevel, readPage } from './page';
 import { resolve } from './resolve';
 import {
@@ -8,10 +9,12 @@ import {
   agencyNamesItem,
   enabledItem,
   highLevelOriginsItem,
+  iconOverridesItem,
   MAX_ORIGINS,
   nicknamesItem,
   rememberName,
   smartListNamesItem,
+  tabIconsEnabledItem,
   templateItem,
 } from './storage';
 import { DEFAULT_TEMPLATE } from './title';
@@ -24,6 +27,12 @@ const UPDATE_MAX_WAIT_MS = 1000;
 const MAX_APPLIES_PER_WINDOW = 40;
 const APPLY_WINDOW_MS = 3000;
 const BACKOFF_MS = 5000;
+export const TIMINGS = {
+  /** How long a page may look broken before the warning badge appears (pages load slowly). */
+  healthGraceMs: 15_000,
+};
+/** Marks icon links we changed, and remembers HighLevel's own icon so it can be restored. */
+const ORIGINAL_ICON_ATTR = 'data-ghl-tab-title-original-href';
 
 const CACHE_FIELD = {
   smartList: 'smartListNames',
@@ -48,7 +57,13 @@ export function startTopFrame(ctx: ContentScriptContext): void {
 }
 
 class TitleController {
-  private settings: Settings = { enabled: true, template: DEFAULT_TEMPLATE, nicknames: {} };
+  private settings: Settings = {
+    enabled: true,
+    template: DEFAULT_TEMPLATE,
+    nicknames: {},
+    tabIcons: true,
+    iconOverrides: {},
+  };
   private caches: Caches = { smartListNames: {}, accountNames: {}, agencyNames: {} };
   private ready = false;
 
@@ -64,6 +79,16 @@ class TitleController {
   private page: PageSnapshot | null = null;
   private resolution: Resolution | null = null;
 
+  /** Page (rule + path) the health check is timing, and since when. */
+  private healthKey = '';
+  private healthSince = 0;
+  /** Problem last sent to the background for the badge. */
+  private reportedProblem: string | null = null;
+  /** Send the health state even if unchanged (the badge may have been cleared on navigation). */
+  private forceHealthSend = false;
+  private healthTimer: number | undefined;
+  private icon: TabIconStyle | null = null;
+
   private timer: number | undefined;
   private firstScheduledAt = 0;
 
@@ -77,6 +102,8 @@ class TitleController {
     ctx.onInvalidated(enabledItem.watch((v) => this.setSetting('enabled', v)));
     ctx.onInvalidated(templateItem.watch((v) => this.setSetting('template', v)));
     ctx.onInvalidated(nicknamesItem.watch((v) => this.setSetting('nicknames', v)));
+    ctx.onInvalidated(tabIconsEnabledItem.watch((v) => this.setSetting('tabIcons', v)));
+    ctx.onInvalidated(iconOverridesItem.watch((v) => this.setSetting('iconOverrides', v ?? {})));
     // Keep learned names current when other tabs learn new ones.
     ctx.onInvalidated(smartListNamesItem.watch((v) => (this.caches.smartListNames = v ?? {})));
     ctx.onInvalidated(accountNamesItem.watch((v) => (this.caches.accountNames = v ?? {})));
@@ -88,12 +115,14 @@ class TitleController {
       childList: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ['aria-selected', 'aria-label'],
+      // href: HighLevel may put its own tab icon back.
+      attributeFilter: ['aria-selected', 'aria-label', 'href'],
     });
     ctx.onInvalidated(() => observer.disconnect());
 
     ctx.addEventListener(window, 'wxt:locationchange', () => {
       this.navigatedAt = Date.now();
+      if (this.reportedProblem !== null) this.forceHealthSend = true;
       this.requestFrameResend();
       this.schedule(0);
       // Drop reports that no frame re-sent once the grace period is over.
@@ -125,23 +154,36 @@ class TitleController {
     };
     browser.runtime.onMessage.addListener(onMessage);
     ctx.onInvalidated(() => browser.runtime.onMessage.removeListener(onMessage));
-    ctx.onInvalidated(() => this.restoreNativeTitle());
+    ctx.onInvalidated(() => {
+      this.restoreNativeTitle();
+      this.restoreIcon();
+    });
 
     // Frames that loaded before HighLevel was detected sent their names to nobody.
     this.requestFrameResend();
   }
 
   private async loadState(): Promise<void> {
-    const [enabled, template, nicknames, smartListNames, accountNames, agencyNames] =
-      await Promise.all([
-        enabledItem.getValue(),
-        templateItem.getValue(),
-        nicknamesItem.getValue(),
-        smartListNamesItem.getValue(),
-        accountNamesItem.getValue(),
-        agencyNamesItem.getValue(),
-      ]);
-    this.settings = { enabled, template, nicknames };
+    const [
+      enabled,
+      template,
+      nicknames,
+      tabIcons,
+      iconOverrides,
+      smartListNames,
+      accountNames,
+      agencyNames,
+    ] = await Promise.all([
+      enabledItem.getValue(),
+      templateItem.getValue(),
+      nicknamesItem.getValue(),
+      tabIconsEnabledItem.getValue(),
+      iconOverridesItem.getValue(),
+      smartListNamesItem.getValue(),
+      accountNamesItem.getValue(),
+      agencyNamesItem.getValue(),
+    ]);
+    this.settings = { enabled, template, nicknames, tabIcons, iconOverrides };
     this.caches = { smartListNames, accountNames, agencyNames };
     this.ready = true;
     this.schedule(0);
@@ -207,6 +249,87 @@ class TitleController {
 
     if (this.settings.enabled && this.resolution.title) this.apply(this.resolution.title);
     else this.restoreNativeTitle();
+
+    this.updateIcon();
+    this.updateHealth();
+  }
+
+  /** Letter icon for the current sub-account, or HighLevel's own icon. */
+  private updateIcon(): void {
+    const page = this.page;
+    const { settings } = this;
+    if (!page?.locationId || !settings.enabled || !settings.tabIcons) {
+      this.icon = null;
+      this.restoreIcon();
+      return;
+    }
+    const nickname = settings.nicknames[page.locationId]?.nickname?.trim();
+    const name = nickname || this.resolution?.accountName || null;
+    this.icon = resolveIconStyle(page.locationId, name, settings.iconOverrides[page.locationId]);
+    this.applyIcon(iconDataUrl(this.icon));
+  }
+
+  private applyIcon(href: string): void {
+    let links = [...document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')];
+    if (!links.length) {
+      const link = document.createElement('link');
+      link.rel = 'icon';
+      link.setAttribute(ORIGINAL_ICON_ATTR, '');
+      (document.head ?? document.documentElement).append(link);
+      links = [link];
+    }
+    for (const link of links) {
+      if (link.getAttribute('href') === href) continue;
+      if (!link.hasAttribute(ORIGINAL_ICON_ATTR)) {
+        link.setAttribute(ORIGINAL_ICON_ATTR, link.getAttribute('href') ?? '');
+      }
+      link.setAttribute('href', href);
+    }
+  }
+
+  private restoreIcon(): void {
+    for (const link of document.querySelectorAll<HTMLLinkElement>(`link[${ORIGINAL_ICON_ATTR}]`)) {
+      const original = link.getAttribute(ORIGINAL_ICON_ATTR) ?? '';
+      link.removeAttribute(ORIGINAL_ICON_ATTR);
+      // An empty original means we added the link ourselves.
+      if (original) link.setAttribute('href', original);
+      else link.remove();
+    }
+  }
+
+  /**
+   * Shows a warning badge when the page has looked broken for a while (for example, a contact
+   * page with no contact name), so HighLevel UI changes get noticed quickly.
+   */
+  private updateHealth(): void {
+    const page = this.page;
+    const resolution = this.resolution;
+    if (!page || !resolution) return;
+
+    const key = `${resolution.routeId}:${page.rest}`;
+    const now = Date.now();
+    if (key !== this.healthKey) {
+      this.healthKey = key;
+      this.healthSince = now;
+    }
+
+    let problem = this.settings.enabled ? resolution.problem : null;
+    const waited = now - this.healthSince;
+    if (problem && waited < TIMINGS.healthGraceMs) {
+      // Give the page time to finish loading, then look again.
+      if (this.healthTimer === undefined) {
+        this.healthTimer = this.ctx.setTimeout(() => {
+          this.healthTimer = undefined;
+          this.schedule(0);
+        }, TIMINGS.healthGraceMs - waited + 50);
+      }
+      problem = null;
+    }
+    if (problem === this.reportedProblem && !this.forceHealthSend) return;
+    this.forceHealthSend = false;
+    this.reportedProblem = problem;
+    const message: HealthMessage = { type: 'ghl:health', problem };
+    browser.runtime.sendMessage(message).catch(() => {});
   }
 
   private apply(title: string): void {
@@ -273,6 +396,8 @@ class TitleController {
       crumbs: this.page?.crumbs ?? [],
       frames: [...this.frames.values()],
       notes: this.debugNotes(),
+      problem: this.reportedProblem,
+      icon: this.icon,
     };
   }
 }
