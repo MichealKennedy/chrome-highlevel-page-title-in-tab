@@ -40,10 +40,16 @@
     </section>
 
     <section class="card">
-      <h2>Nicknames</h2>
-      <div id="nickname-current"></div>
-      <ul class="nickname-list" id="nickname-list"></ul>
-      <p class="hint" id="nickname-empty">No nicknames yet. Open a HighLevel tab to add one.</p>
+      <div class="card-title-row">
+        <h2>Sub-accounts</h2>
+        <label class="mini-toggle" title="Show each sub-account's letter icon in its tabs">
+          <input type="checkbox" id="tab-icons" checked />
+          <span>Letter icons</span>
+        </label>
+      </div>
+      <div id="account-current"></div>
+      <ul class="account-list" id="account-list"></ul>
+      <p class="hint" id="account-empty">No nicknames or icon changes yet. Open a HighLevel tab to set them.</p>
     </section>
 
     <p class="status" id="status" role="status"></p>

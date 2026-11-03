@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { isMessage, type FrameItemRelayMessage } from '@/lib/messages';
-import { enabledItem, templateItem } from '@/lib/storage';
-import { startTopFrame } from '@/lib/top-frame';
+import { enabledItem, iconOverridesItem, tabIconsEnabledItem, templateItem } from '@/lib/storage';
+import { startTopFrame, TIMINGS } from '@/lib/top-frame';
 import { contactDetail, LOCATION_ID, switchyardPage } from './fixtures';
 import { sleep, waitFor } from './helpers';
 
@@ -19,8 +19,14 @@ const CONTACT_TITLE = 'John Doe | Contacts | Acme Training';
 let ctx: ContentScriptContext;
 const title = () => `title was "${document.title}"`;
 
+const AGENCY_ICON = 'https://cdn.example.com/agency-logo.png';
+const iconHref = () => document.querySelector('link[rel~="icon"]')?.getAttribute('href') ?? '';
+const iconSvgText = () => decodeURIComponent(iconHref().replace('data:image/svg+xml,', ''));
+
 beforeEach(() => {
   fakeBrowser.reset();
+  TIMINGS.healthGraceMs = 15_000;
+  document.head.innerHTML = `<title>Acme Agency</title><link rel="icon" href="${AGENCY_ICON}">`;
   document.title = 'Acme Agency';
   history.replaceState({}, '', `/v2/location/${LOCATION_ID}/contacts/detail/abc`);
   document.body.innerHTML = switchyardPage({ crumbs: CONTACTS, body: contactDetail('John Doe') });
@@ -107,4 +113,45 @@ describe('top-frame controller', () => {
     await sleep(400);
     expect(document.title).toBe('Forms | Acme Training');
   });
+
+  it("shows the sub-account's letter icon, and HighLevel's icon when turned off", async () => {
+    startTopFrame(ctx);
+    await waitFor(() => iconHref().startsWith('data:image/svg+xml'), () => `icon was ${iconHref()}`);
+    expect(iconSvgText()).toContain('>A</text>');
+    await tabIconsEnabledItem.setValue(false);
+    await waitFor(() => iconHref() === AGENCY_ICON, () => `icon was ${iconHref()}`);
+  });
+
+  it('uses the letter and colour set in the popup', async () => {
+    await iconOverridesItem.setValue({ [LOCATION_ID]: { letter: 'Z', color: '#123456' } });
+    startTopFrame(ctx);
+    await waitFor(() => iconSvgText().includes('>Z</text>'), () => `icon was ${iconSvgText()}`);
+    expect(iconSvgText()).toContain('fill="#123456"');
+  });
+
+  it('leaves the icon alone on agency pages', async () => {
+    history.replaceState({}, '', '/accounts');
+    document.body.innerHTML = '<div id="location-switcher-sidbar-v2"></div><a id="sb_sub-accounts" class="active">Sub-Accounts</a>';
+    startTopFrame(ctx);
+    await waitFor(() => document.title === 'Sub-Accounts | Acme Agency', title);
+    expect(iconHref()).toBe(AGENCY_ICON);
+  });
+
+  it('reports a broken page after the grace period, and clears it when fixed', async () => {
+    TIMINGS.healthGraceMs = 150;
+    const health: unknown[] = [];
+    fakeBrowser.runtime.onMessage.addListener((message: unknown) => {
+      if (isMessage(message, 'ghl:health')) health.push(message);
+    });
+    // A contact page whose contact name never shows up.
+    document.body.innerHTML = switchyardPage({ crumbs: CONTACTS });
+    startTopFrame(ctx);
+    await waitFor(() => document.title === 'Contacts | Acme Training', title);
+    await waitFor(() => health.length > 0, () => `health: ${JSON.stringify(health)}`);
+    expect(health.at(-1)).toEqual({ type: 'ghl:health', problem: "Couldn't find the contact name." });
+
+    document.body.innerHTML = switchyardPage({ crumbs: CONTACTS, body: contactDetail('John Doe') });
+    await waitFor(() => (health.at(-1) as { problem?: unknown })?.problem === null, () => `health: ${JSON.stringify(health)}`);
+  });
 });
+

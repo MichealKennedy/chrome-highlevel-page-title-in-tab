@@ -2,8 +2,9 @@
   "name": "ghl-tab-title",
   "description": "Shows the HighLevel item, section and sub-account you're on in the browser tab title.",
   "private": true,
-  "version": "2.0.1",
+  "version": "2.1.0",
   "type": "module",
+  "packageManager": "pnpm@10.15.0",
   "scripts": {
     "dev": "wxt",
     "dev:firefox": "wxt -b firefox",

@@ -1,0 +1,59 @@
+name: Release
+
+# When main gets a version in package.json that hasn't been released yet, build the
+# extension and publish a GitHub release "v<version>" with the Chrome zip attached.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check whether this version is already released
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(jq -r .version package.json)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" > /dev/null 2>&1; then
+            echo "Release v$version already exists; nothing to do."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.version.outputs.new == 'true'
+        uses: pnpm/action-setup@v6
+      - if: steps.version.outputs.new == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - if: steps.version.outputs.new == 'true'
+        run: pnpm install --frozen-lockfile
+      - if: steps.version.outputs.new == 'true'
+        run: pnpm test
+      - if: steps.version.outputs.new == 'true'
+        run: pnpm zip
+
+      - if: steps.version.outputs.new == 'true'
+        name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "v$VERSION" .output/*-chrome.zip \
+            --target "$GITHUB_SHA" \
+            --title "GHL Tab Title $VERSION" \
+            --generate-notes

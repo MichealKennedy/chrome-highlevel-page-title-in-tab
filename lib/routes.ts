@@ -33,9 +33,21 @@ export interface RouteRule {
   /** Fixed section label. Otherwise the breadcrumb decides. */
   section?: string;
   item?: (ctx: RouteContext) => ItemResult | null;
+  /**
+   * For the breakage warning: describes what's missing when the page doesn't look as this rule
+   * expects (for example, an item page with no item name). `null` means the page looks fine.
+   */
+  check?: (ctx: RouteContext, item: ItemResult | null) => string | null;
 }
 
 const ID = '([^/?#]+)';
+/** HighLevel record IDs that are 24-character hex strings. */
+const HEX_ID = '([0-9a-f]{24})';
+
+/** The page should always show an item; complain if it doesn't. */
+function expectItem(what: string) {
+  return (_ctx: RouteContext, item: ItemResult | null) => (item ? null : `Couldn't find the ${what}.`);
+}
 
 export const ROUTES: readonly RouteRule[] = [
   {
@@ -43,16 +55,22 @@ export const ROUTES: readonly RouteRule[] = [
     pattern: new RegExp(`^contacts/smart_list/${ID}`),
     section: 'Smart Lists',
     item: smartListName,
+    // The open list can legitimately be hidden in the "N More" menu, so only the tab bar
+    // itself going missing counts as a problem.
+    check: (ctx) =>
+      ctx.doc.querySelector('#smart-list-views-bar') ? null : "Couldn't find the smart list tabs.",
   },
   {
     id: 'contact',
     pattern: new RegExp(`^contacts/detail/${ID}`),
     item: fromDom(['#record-details-lhs p.hr-text-semibold > span', '[data-testid="CENTRALPANEL_NAME"]']),
+    check: expectItem('contact name'),
   },
   {
     id: 'conversation',
     pattern: new RegExp(`^conversations/conversations/${ID}`),
     item: fromDom(['[data-testid="CENTRALPANEL_NAME"]']),
+    check: expectItem('contact name'),
   },
   {
     // Clicking a card opens an edit modal (URL becomes opportunities/<id>); clicking the
@@ -69,33 +87,39 @@ export const ROUTES: readonly RouteRule[] = [
     pattern: new RegExp(`^form-builder-v2/${ID}`),
     section: 'Forms',
     item: fromFrame('form-builder', { idInFrameUrl: true }),
+    check: expectItem('form name'),
   },
   {
     id: 'survey-builder',
     pattern: new RegExp(`^survey-builder-v2/${ID}`),
     section: 'Surveys',
     item: fromFrame('form-builder', { idInFrameUrl: true }),
+    check: expectItem('survey name'),
   },
   {
     id: 'quiz-builder',
     pattern: new RegExp(`^quiz-builder-v2/${ID}`),
     section: 'Quizzes',
     item: fromFrame('form-builder', { idInFrameUrl: true }),
+    check: expectItem('quiz name'),
   },
   {
     id: 'workflow',
     pattern: new RegExp(`^automation/workflow/${ID}`),
     item: (ctx) => fromFrame('workflow')(ctx) ?? workflowFromNativeTitle(ctx),
+    check: expectItem('workflow name'),
   },
   {
     id: 'funnel',
     pattern: new RegExp(`^funnels-websites/funnels/${ID}`),
     item: funnelName,
+    check: expectItem('funnel name'),
   },
   {
     id: 'website',
     pattern: new RegExp(`^funnels-websites/websites/${ID}`),
     item: funnelName,
+    check: expectItem('website name'),
   },
   {
     id: 'email',
@@ -105,12 +129,47 @@ export const ROUTES: readonly RouteRule[] = [
       '.email-builder-header [contenteditable]',
       '.email-builder-header .truncate',
     ]),
+    // Only the builder (a template or campaign being edited) has a name to show.
+    check: (ctx, item) =>
+      !item && /^marketing\/emails\/(?:templates|campaigns)\/[^/]+/.test(ctx.page.rest)
+        ? "Couldn't find the email name."
+        : null,
   },
   {
     // The calendar editor opens inside the calendar app's frame; the URL doesn't change.
     id: 'calendars',
     pattern: /^(?:settings\/calendars|calendars)(?:\/|$)/,
     item: fromFrame('calendar'),
+  },
+  {
+    id: 'custom-report',
+    pattern: new RegExp(`^reporting/reports/[^/]+/${ID}`),
+    item: fromDom(['#report_builder-text-report_title']),
+    check: expectItem('report name'),
+  },
+  {
+    id: 'course',
+    pattern: /^memberships\/courses\/course-creator-studio(?:\/|$)/,
+    item: fromDom(['.course-title-bar .hr-text-2xl', '.course-title-bar p']),
+    check: expectItem('course name'),
+  },
+  {
+    id: 'invoice',
+    pattern: new RegExp(`^payments/invoices/${HEX_ID}(?:/|$)`),
+    item: invoiceName,
+    check: expectItem('invoice name'),
+  },
+  {
+    id: 'document',
+    pattern: new RegExp(`^payments/proposals-estimates/edit/${ID}`),
+    item: fromFrame('document', { idInFrameUrl: true }),
+    check: expectItem('document name'),
+  },
+  {
+    id: 'payment-link',
+    pattern: new RegExp(`^payments/v2/paymentlinks/edit/${ID}`),
+    item: fromDom(['input[placeholder="Enter Link Name"]']),
+    check: expectItem('payment link name'),
   },
 ];
 
@@ -167,6 +226,16 @@ function workflowFromNativeTitle(ctx: RouteContext): ItemResult | null {
   const agency = ctx.page.agencyName ?? ctx.caches.agencyNames[ctx.page.host];
   if (title === agency || /^workflows?( list)?$/i.test(title)) return null;
   return { parts: [title], source: 'native-title' };
+}
+
+/** Invoice number and name, e.g. `INV-000042 Consultation Fee`. */
+function invoiceName(ctx: RouteContext): ItemResult | null {
+  const value = (selector: string) => textOf(ctx.doc.querySelector(selector));
+  const prefix = value('#invoice-prefix-input input') ?? '';
+  const number = value('#invoice-number-input input');
+  const name = value('#invoice-name input');
+  const text = [number ? `${prefix}${number}` : null, name].filter(Boolean).join(' ');
+  return text ? { parts: [text], source: 'dom:#invoice-number-input + #invoice-name' } : null;
 }
 
 /** The opportunity modal's heading reads `Edit "Name"`. */

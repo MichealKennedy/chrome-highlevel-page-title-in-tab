@@ -1,5 +1,7 @@
+import type { TabIconOverride, TabIconStyle } from './icon';
+
 /** Kinds of item names that live inside HighLevel's embedded app frames. */
-export type FrameKind = 'form-builder' | 'workflow' | 'calendar';
+export type FrameKind = 'form-builder' | 'workflow' | 'calendar' | 'document';
 
 /** One entry of HighLevel's top-bar breadcrumb (`[data-switchyard-breadcrumb]`). */
 export interface Crumb {
@@ -56,6 +58,10 @@ export interface Settings {
   template: string;
   /** Keyed by location ID, or `agency@<host>` for agency-level pages. */
   nicknames: Record<string, Nickname>;
+  /** Whether sub-account pages get a letter tab icon. */
+  tabIcons: boolean;
+  /** Per-sub-account icon changes, keyed by location ID. */
+  iconOverrides: Record<string, TabIconOverride>;
 }
 
 /** Names learned on earlier visits, used when the page doesn't show them. */
@@ -85,6 +91,8 @@ export interface Resolution {
   accountName: string | null;
   title: string | null;
   learned: Learned[];
+  /** What looks broken on this page (for the warning badge), or `null`. */
+  problem: string | null;
 }
 
 /** What the popup shows in its debug panel. */
@@ -104,4 +112,8 @@ export interface DebugInfo {
   crumbs: Crumb[];
   frames: FrameReport[];
   notes: string[];
+  /** Problem currently shown on the toolbar badge, if any. */
+  problem: string | null;
+  /** The tab icon in use, or `null` when none is shown. */
+  icon: TabIconStyle | null;
 }

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { currentFrameReports, extractFrameItem, FRAME_STALE_GRACE_MS } from '@/lib/frames';
 import type { FrameReport } from '@/lib/types';
-import { calendarFrame, formBuilderFrame, workflowFrame } from './fixtures';
+import { calendarFrame, documentFrame, formBuilderFrame, workflowFrame } from './fixtures';
 
 describe('currentFrameReports', () => {
   const report = (frameId: number, at: number): FrameReport => ({
@@ -44,6 +44,19 @@ describe('extractFrameItem', () => {
   it('reads the calendar name, not the meeting invite title', () => {
     document.body.innerHTML = calendarFrame('Discovery Call');
     expect(extractFrameItem(document)).toEqual({ kind: 'calendar', name: 'Discovery Call' });
+  });
+
+  it('reads the document name only inside the document builder', () => {
+    document.body.innerHTML = documentFrame('Service Agreement');
+    const original = location.pathname;
+    try {
+      history.replaceState({}, '', '/v2/location/LocAbc/payments/proposals-estimates/edit/doc123');
+      expect(extractFrameItem(document)).toEqual({ kind: 'document', name: 'Service Agreement' });
+      history.replaceState({}, '', '/some/other/app');
+      expect(extractFrameItem(document)).toBeNull();
+    } finally {
+      history.replaceState({}, '', original);
+    }
   });
 
   it('returns null for an empty builder name and for unrelated frames', () => {

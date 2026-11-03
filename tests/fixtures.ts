@@ -217,3 +217,56 @@ export function calendarFrame(name: string): string {
       <input type="text" class="n-input__input-el" placeholder="{{contact.name}}" value="Meeting with {{contact.name}}">
     </div>`;
 }
+
+// ---- More page types (added November 2026) ----
+
+export function reportPage(name: string): string {
+  return `
+    <div class="w-full flex flex-col sticky"><header class="relative w-full flex items-stretch">
+      <div id="report_builder-header_start" class="flex min-w-0 flex-1 items-center">
+        <div id="report_builder-title" class="flex min-w-0 flex-1 items-center"><div class="flex min-w-0 max-w-full items-center">
+          <div class="min-w-0 overflow-hidden"><p id="report_builder-text-report_title" class="hr-text hr-text-2xl hr-text-medium block">${name}</p></div>
+        </div></div>
+      </div>
+    </header></div>`;
+}
+
+export function coursePage(name: string): string {
+  return `
+    <div id="membership" class="membership-content"><div class="hr-wrapper-container full-screen membershipApp">
+      <div class="hr-config-provider font-sans"><div class="flex flex-col relative"><div class="bg-white">
+        <div class="flex items-center justify-between my-0 py-3 px-2 bg-white course-title-bar">
+          <div class="flex items-center gap-3">
+            <button id="back-btn" type="button"></button>
+            <div class="flex flex-col"><p class="hr-text hr-text-2xl hr-text-semibold text-gray-900 leading-tight break">${name}</p></div>
+          </div>
+        </div>
+      </div></div></div>
+    </div></div>`;
+}
+
+export function invoicePage(name: string, prefix: string, number: string): string {
+  const input = (id: string, value: string) =>
+    `<div id="${id}" class="hr-input hr-input--resizable hr-input--stateful"><div class="hr-input-wrapper"><div class="hr-input__input"><input type="text" class="hr-input__input-el" value="${value}"></div></div></div>`;
+  return `
+    <div class="ui-toolbar-group"><div class="hr-form-item"><div class="hr-form-item-blank">${input('invoice-name', name)}</div></div></div>
+    <div class="hr-form-item"><div class="hr-form-item-blank"><div class="invoice-number-group">
+      ${input('invoice-prefix-input', prefix)}${input('invoice-number-input', number)}
+    </div></div></div>`;
+}
+
+export function paymentLinkPage(name: string): string {
+  return `<div class="n-input"><div class="n-input__input"><input type="text" class="n-input__input-el" placeholder="Enter Link Name" value="${name}"></div></div>`;
+}
+
+/** Inside the documents & contracts editor frame. */
+export function documentFrame(name: string): string {
+  return `
+    <div class="font-sans hl-wrapper-container p-0"><div class="n-config-provider">
+      <div class="inline-flex justify-center items-center w-full hl-toolbar-group">
+        <div class="n-input"><div class="n-input-wrapper"><div class="n-input__input">
+          <input type="text" class="n-input__input-el" placeholder="Please Input" value="${name}">
+        </div></div></div>
+      </div>
+    </div></div>`;
+}

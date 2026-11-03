@@ -27,11 +27,18 @@ export interface GetDebugMessage {
   type: 'ghl:get-debug';
 }
 
+/** Top frame → background: show (or clear) the warning badge for this tab. */
+export interface HealthMessage {
+  type: 'ghl:health';
+  problem: string | null;
+}
+
 export type ExtensionMessage =
   | FrameItemMessage
   | FrameItemRelayMessage
   | FramesResendMessage
-  | GetDebugMessage;
+  | GetDebugMessage
+  | HealthMessage;
 
 export function isMessage<T extends ExtensionMessage['type']>(
   value: unknown,

@@ -11,9 +11,13 @@ import {
   legacyAgencyPage,
   LOCATION_ID,
   locationUrl,
+  coursePage,
+  invoicePage,
   opportunityDrawer,
   opportunityModal,
   ORIGIN,
+  paymentLinkPage,
+  reportPage,
   smartListBar,
   switchyardPage,
 } from './fixtures';
@@ -25,7 +29,7 @@ let caches: Caches;
 
 beforeEach(() => {
   document.body.innerHTML = '';
-  settings = { enabled: true, template: DEFAULT_TEMPLATE, nicknames: {} };
+  settings = { enabled: true, template: DEFAULT_TEMPLATE, nicknames: {}, tabIcons: true, iconOverrides: {} };
   caches = { smartListNames: {}, accountNames: {}, agencyNames: {} };
 });
 
@@ -396,5 +400,126 @@ describe('accounts and nicknames', () => {
       }),
     );
     expect(r.title).toBe('Acme Training: John Doe (Contacts)');
+  });
+});
+
+describe('more page types', () => {
+  const COMMERCE = { key: 'group:commerce', label: 'Commerce' };
+
+  it('custom report: report name', () => {
+    const r = titleFor(
+      locationUrl('reporting/reports/view/aaaabbbbccccddddeeeeffff'),
+      switchyardPage({
+        crumbs: [
+          { key: 'group:reporting', label: 'Reporting' },
+          { key: 'item:rep.custom-reports', label: 'Custom reports', current: true },
+        ],
+        body: reportPage('Monthly Leads'),
+      }),
+    );
+    expect(r.title).toBe('Monthly Leads | Custom reports | Acme Training');
+    expect(r.problem).toBeNull();
+  });
+
+  it('course: course name, with the Courses module as section', () => {
+    const r = titleFor(
+      locationUrl('memberships/courses/course-creator-studio?view=manager&product_id=p1'),
+      switchyardPage({
+        crumbs: [
+          { key: 'group:creators-hub', label: 'Client Apps' },
+          { key: 'item:creators.courses', label: 'Courses' },
+          { key: 'item:creators.courses.products', label: 'Course Products', current: true },
+        ],
+        body: coursePage('Onboarding Course'),
+      }),
+    );
+    expect(r.title).toBe('Onboarding Course | Courses | Acme Training');
+  });
+
+  it('invoice: number and name; the invoice list is a list page', () => {
+    const crumbs = [COMMERCE, { key: 'item:pay.invoices-estimates', label: 'Invoices & Estimates', current: true }];
+    const r = titleFor(
+      locationUrl('payments/invoices/0123456789abcdef01234567'),
+      switchyardPage({ crumbs, body: invoicePage('Consultation Fee', 'INV-', '000042') }),
+    );
+    expect(r.title).toBe('INV-000042 Consultation Fee | Invoices & Estimates | Acme Training');
+    const list = titleFor(
+      locationUrl('payments/invoices'),
+      switchyardPage({
+        crumbs: [
+          COMMERCE,
+          { key: 'item:pay.invoices-estimates', label: 'Invoices & Estimates' },
+          { key: 'item:pay.invoices-estimates.all-invoices', label: 'All Invoices', current: true },
+        ],
+      }),
+    );
+    expect(list.title).toBe('All Invoices | Acme Training');
+    expect(list.problem).toBeNull();
+  });
+
+  it('payment link: link name', () => {
+    const r = titleFor(
+      locationUrl('payments/v2/paymentlinks/edit/abc123'),
+      switchyardPage({
+        crumbs: [COMMERCE, { key: 'item:pay.payment-links', label: 'Payment Links', current: true }],
+        body: paymentLinkPage('Consultation Fee'),
+      }),
+    );
+    expect(r.title).toBe('Consultation Fee | Payment Links | Acme Training');
+  });
+
+  it('document: name from the document editor frame', () => {
+    const crumbs = [COMMERCE, { key: 'item:pay.documents-contracts', label: 'Documents & Contracts', current: true }];
+    const frameUrl = `https://leadgen-apps-proposal-builder.leadconnectorhq.com/v2/location/${LOCATION_ID}/payments/proposals-estimates/edit/doc123`;
+    const r = titleFor(locationUrl('payments/proposals-estimates/edit/doc123'), switchyardPage({ crumbs }), {
+      frames: [frame('document', 'Service Agreement', frameUrl)],
+    });
+    expect(r.title).toBe('Service Agreement | Documents & Contracts | Acme Training');
+  });
+});
+
+describe('breakage checks', () => {
+  const contacts = [CRM, { key: 'item:crm.contacts', label: 'Contacts', current: true }];
+
+  it('flags an item page whose item name is missing', () => {
+    expect(titleFor(locationUrl('contacts/detail/abc'), switchyardPage({ crumbs: contacts })).problem).toBe(
+      "Couldn't find the contact name.",
+    );
+    expect(
+      titleFor(locationUrl('contacts/detail/abc'), switchyardPage({ crumbs: contacts, body: contactDetail('John Doe') }))
+        .problem,
+    ).toBeNull();
+  });
+
+  it('only flags smart lists when the tab bar itself is missing', () => {
+    const url = locationUrl('contacts/smart_list/abc');
+    expect(titleFor(url, switchyardPage({ crumbs: contacts })).problem).toBe("Couldn't find the smart list tabs.");
+    // Open list hidden in the "More" menu: not a problem.
+    expect(titleFor(url, switchyardPage({ crumbs: contacts, body: smartListBar([{ label: 'All', all: true }], 9) })).problem).toBeNull();
+  });
+
+  it('only flags emails inside the builder', () => {
+    const crumbs = [
+      { key: 'group:marketing', label: 'Marketing' },
+      { key: 'item:mkt.email-builder', label: 'Emails', current: true },
+    ];
+    expect(titleFor(locationUrl('marketing/emails/statistics'), switchyardPage({ crumbs })).problem).toBeNull();
+    expect(titleFor(locationUrl('marketing/emails/templates/abc/editor'), switchyardPage({ crumbs })).problem).toBe(
+      "Couldn't find the email name.",
+    );
+  });
+
+  it('does not flag pages without a required item', () => {
+    const crumbs = [CRM, { key: 'item:crm.opportunities', label: 'Opportunities', current: true }];
+    expect(titleFor(locationUrl('opportunities'), switchyardPage({ crumbs })).problem).toBeNull();
+    expect(titleFor(new URL(`${ORIGIN}/agency_dashboard/`), legacyAgencyPage('Agency Dashboard')).problem).toBeNull();
+  });
+
+  it('flags a missing sub-account name', () => {
+    const r = titleFor(
+      locationUrl('dashboard'),
+      '<header data-switchyard-topbar=""><nav data-switchyard-breadcrumbs=""></nav></header>',
+    );
+    expect(r.problem).toBe("Couldn't find the sub-account name.");
   });
 });
